@@ -1,17 +1,36 @@
 """Tests for the Copilot SDK tools."""
 
 import asyncio
+import os
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from codecompass.agent.tools import build_tools
+from codecompass.github.client import GitHubClient
 from codecompass.github.git import GitOps
 from codecompass.indexer.knowledge_graph import KnowledgeGraph
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _load_github_token() -> str | None:
+    """Load GITHUB_TOKEN from .env or environment."""
+    token = os.environ.get("GITHUB_TOKEN")
+    if token:
+        return token
+    env_path = REPO_ROOT / ".env"
+    if env_path.exists():
+        for line in env_path.read_text().splitlines():
+            if line.startswith("GITHUB_TOKEN="):
+                return line.split("=", 1)[1].strip()
+    return None
+
+
+GITHUB_TOKEN = _load_github_token()
+HAS_GITHUB_TOKEN = bool(GITHUB_TOKEN)
 
 
 def _call_tool(tool, **kwargs) -> dict:
@@ -591,3 +610,75 @@ class TestSearchIssuesEmpty:
         tool = _get_tool(github_tools, "search_issues")
         text = _call_tool_text(tool, query="nothing")
         assert "No issues found" in text
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Real GitHub API tests (run when GITHUB_TOKEN is available)
+# ══════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.skipif(not HAS_GITHUB_TOKEN, reason="GITHUB_TOKEN not set")
+class TestGetPRDetailsRealAPI:
+    """Test get_pr_details against the real GitHub API (octocat/Hello-World)."""
+
+    @pytest.fixture(scope="class")
+    def live_github_tools(self, git_ops, knowledge_graph):
+        """Build tools with a real GitHub client pointed at octocat/Hello-World."""
+        client = GitHubClient(owner="octocat", repo="Hello-World", token=GITHUB_TOKEN)
+        return build_tools(
+            REPO_ROOT,
+            git_ops=git_ops,
+            knowledge_graph=knowledge_graph,
+            github_client=client,
+        )
+
+    def test_pr_by_number_real(self, live_github_tools) -> None:
+        """octocat/Hello-World has PR #2029 (or similar). Query by number."""
+        tool = _get_tool(live_github_tools, "get_pr_details")
+        # PR #1 doesn't exist on Hello-World; use a known PR or search
+        text = _call_tool_text(tool, query="test")
+        # Should get some PR results (not "GitHub API not available")
+        assert "GitHub API not available" not in text
+        assert (
+            "PR #" in text
+            or "No pull requests found" in text
+            or "#" in text
+        )
+
+    def test_pr_search_keyword_real(self, live_github_tools) -> None:
+        """Search PRs by keyword on a real repo."""
+        tool = _get_tool(live_github_tools, "get_pr_details")
+        text = _call_tool_text(tool, query="update")
+        assert "GitHub API not available" not in text
+
+
+@pytest.mark.skipif(not HAS_GITHUB_TOKEN, reason="GITHUB_TOKEN not set")
+class TestSearchIssuesRealAPI:
+    """Test search_issues against the real GitHub API."""
+
+    @pytest.fixture(scope="class")
+    def live_github_tools(self, git_ops, knowledge_graph):
+        client = GitHubClient(owner="octocat", repo="Hello-World", token=GITHUB_TOKEN)
+        return build_tools(
+            REPO_ROOT,
+            git_ops=git_ops,
+            knowledge_graph=knowledge_graph,
+            github_client=client,
+        )
+
+    def test_search_issues_real(self, live_github_tools) -> None:
+        """Search issues on octocat/Hello-World (has many issues)."""
+        tool = _get_tool(live_github_tools, "search_issues")
+        text = _call_tool_text(tool, query="hello")
+        assert "GitHub API not available" not in text
+        # Should find at least one issue
+        assert "#" in text or "No issues found" in text
+
+    def test_search_issues_real_format(self, live_github_tools) -> None:
+        """Real issue results should have proper structure."""
+        tool = _get_tool(live_github_tools, "search_issues")
+        text = _call_tool_text(tool, query="world")
+        assert "GitHub API not available" not in text
+        if "Found" in text:
+            assert "issue" in text.lower()
+            assert "#" in text

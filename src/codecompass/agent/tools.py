@@ -430,7 +430,7 @@ def build_tools(
             prs = await github_client.list_prs(state="all")
             matching = [
                 p for p in prs
-                if params.query.lower() in (p.get("title", "") + p.get("body", "")).lower()
+                if params.query.lower() in ((p.get("title") or "") + (p.get("body") or "")).lower()
             ][:params.max_results]
 
             if not matching:

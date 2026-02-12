@@ -28,3 +28,5 @@ Thumbs.db
 *.db
 *.sqlite
 .codecompass/
+
+.env

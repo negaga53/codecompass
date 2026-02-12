@@ -69,7 +69,23 @@ class GetModuleDepsParams(BaseModel):
 # ── Tool factory ─────────────────────────────────────────────────────
 
 
-def build_tools(repo_path: Path, *, git_ops: Any = None, knowledge_graph: Any = None):
+class GetPRDetailsParams(BaseModel):
+    query: str = Field(description="PR number (as string) or search term to find relevant pull requests")
+    max_results: int = Field(default=5, description="Maximum pull requests to return")
+
+
+class SearchIssuesParams(BaseModel):
+    query: str = Field(description="Search query for GitHub issues")
+    max_results: int = Field(default=5, description="Maximum issues to return")
+
+
+def build_tools(
+    repo_path: Path,
+    *,
+    git_ops: Any = None,
+    knowledge_graph: Any = None,
+    github_client: Any = None,
+):
     """Build the list of Copilot SDK custom tools.
 
     This function is imported by the client module and passed into the
@@ -81,6 +97,7 @@ def build_tools(repo_path: Path, *, git_ops: Any = None, knowledge_graph: Any = 
         repo_path: Absolute path to the repository root.
         git_ops: An instance of ``GitOps`` for local git operations.
         knowledge_graph: An instance of ``KnowledgeGraph``.
+        github_client: An instance of ``GitHubClient`` for PR/issue lookup.
 
     Returns:
         A list of tool objects ready for ``create_session(tools=[...])``.
@@ -366,5 +383,91 @@ def build_tools(repo_path: Path, *, git_ops: Any = None, knowledge_graph: Any = 
             return f"Error getting module dependencies: {exc}"
 
     tools.append(get_module_dependencies)
+
+    # ── get_pr_details ───────────────────────────────────────────────
+
+    @define_tool(description="Search for and retrieve pull request details from GitHub. Use this to understand why changes were made, find context from code review discussions, and trace the history of decisions.")
+    async def get_pr_details(params: GetPRDetailsParams) -> str:
+        if github_client is None:
+            return "GitHub API not available. Set GITHUB_TOKEN and ensure this is a GitHub-hosted repo."
+        try:
+            # Try to interpret query as a PR number
+            try:
+                pr_num = int(params.query)
+                pr = await github_client.get_pr(pr_num)
+                if pr:
+                    comments = await github_client.get_pr_comments(pr_num)
+                    reviews = await github_client.get_pr_reviews(pr_num)
+                    lines = [
+                        f"## PR #{pr['number']}: {pr['title']}",
+                        f"- **State:** {pr['state']}",
+                        f"- **Author:** {pr.get('user', {}).get('login', 'unknown')}",
+                        f"- **Created:** {pr.get('created_at', 'N/A')}",
+                        f"- **Merged:** {pr.get('merged_at', 'N/A')}",
+                        "",
+                        "### Description",
+                        pr.get("body", "_No description_") or "_No description_",
+                    ]
+                    if reviews:
+                        lines.append("\n### Reviews")
+                        for r in reviews[:5]:
+                            lines.append(
+                                f"- **{r.get('user', {}).get('login', '?')}** ({r.get('state', '?')}): "
+                                f"{(r.get('body', '') or '')[:200]}"
+                            )
+                    if comments:
+                        lines.append("\n### Comments")
+                        for c in comments[:5]:
+                            lines.append(
+                                f"- **{c.get('user', {}).get('login', '?')}**: "
+                                f"{(c.get('body', '') or '')[:200]}"
+                            )
+                    return "\n".join(lines)
+            except ValueError:
+                pass  # Not a number, search instead
+
+            # Search PRs by query
+            prs = await github_client.list_prs(state="all")
+            matching = [
+                p for p in prs
+                if params.query.lower() in (p.get("title", "") + p.get("body", "")).lower()
+            ][:params.max_results]
+
+            if not matching:
+                return f"No pull requests found matching '{params.query}'"
+            lines = [f"Found {len(matching)} PR(s) matching '{params.query}':"]
+            for p in matching:
+                lines.append(
+                    f"- **#{p['number']}** {p['title']} ({p['state']}) "
+                    f"by {p.get('user', {}).get('login', '?')}"
+                )
+            return "\n".join(lines)
+        except Exception as exc:
+            return f"Error fetching PR details: {exc}"
+
+    tools.append(get_pr_details)
+
+    # ── search_issues ────────────────────────────────────────────────
+
+    @define_tool(description="Search GitHub Issues for context about decisions, bugs, or feature requests related to the codebase.")
+    async def search_issues(params: SearchIssuesParams) -> str:
+        if github_client is None:
+            return "GitHub API not available. Set GITHUB_TOKEN and ensure this is a GitHub-hosted repo."
+        try:
+            issues = await github_client.search_issues(params.query)
+            if not issues:
+                return f"No issues found matching '{params.query}'"
+            results = issues[:params.max_results]
+            lines = [f"Found {len(results)} issue(s) matching '{params.query}':"]
+            for iss in results:
+                lines.append(
+                    f"- **#{iss.get('number', '?')}** {iss.get('title', 'Untitled')} "
+                    f"({iss.get('state', '?')}) — {(iss.get('body', '') or '')[:100]}"
+                )
+            return "\n".join(lines)
+        except Exception as exc:
+            return f"Error searching issues: {exc}"
+
+    tools.append(search_issues)
 
     return tools

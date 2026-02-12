@@ -19,7 +19,7 @@ Point CodeCompass at any repo and get an instant, structured overview:
 - CI/CD setup, test directories, and contribution guidelines
 
 ### 💬 Multi-Turn Codebase Chat
-Ask questions in natural language. The AI agent uses **10 custom tools** to ground answers in actual code:
+Ask questions in natural language. The AI agent uses **11 custom tools** to ground answers in actual code:
 - Read and search source files
 - Search git commit history
 - Analyze contributor patterns
@@ -51,7 +51,12 @@ Detect stale documentation:
 - Install instructions that don't match current dependencies
 - Docstring drift from actual function signatures
 
-### 🖥️ Rich Terminal UI
+### � Export
+Generate portable onboarding documents or structured data:
+- `codecompass export --format=markdown` — full Markdown onboarding guide
+- `codecompass export --format=json` — structured JSON knowledge graph
+
+### �🖥️ Rich Terminal UI
 A beautiful Textual-based TUI with:
 - Split-pane layout (sidebar summary + chat)
 - Real-time streaming responses
@@ -97,6 +102,12 @@ codecompass contributors
 # Audit documentation freshness
 codecompass audit
 
+# Export onboarding document
+codecompass export --format markdown -o onboarding.md
+
+# Export knowledge graph as JSON
+codecompass export --format json -o knowledge.json
+
 # Start interactive chat mode
 codecompass chat
 
@@ -128,7 +139,7 @@ codecompass tui
 ┌──────────────────────────────────────────────────┐
 │         Copilot CLI (server mode)                 │
 │  ┌──────────┐ ┌───────────┐ ┌──────────────────┐ │
-│  │ Built-in │ │ 10 Custom │ │ Knowledge Graph  │ │
+│  │ Built-in │ │ 11 Custom │ │ Knowledge Graph  │ │
 │  │ Tools    │ │ Tools     │ │ + Git Analysis   │ │
 │  └──────────┘ └───────────┘ └──────────────────┘ │
 └──────────────────────────────────────────────────┘
@@ -136,10 +147,10 @@ codecompass tui
 
 ### Custom Tools
 
-CodeCompass extends the Copilot agent with **10 custom tools**:
+CodeCompass extends the Copilot agent with **11 custom tools**:
 
 | Tool | Purpose |
-|------|---------|
+|------|---------||
 | `search_git_history` | Search commit messages for a topic or keyword |
 | `get_file_contributors` | Who worked on a specific file |
 | `read_source_file` | Read file contents (with line range support) |
@@ -149,7 +160,8 @@ CodeCompass extends the Copilot agent with **10 custom tools**:
 | `detect_stale_docs` | Identify outdated documentation |
 | `get_symbol_info` | Look up classes/functions in the knowledge graph |
 | `get_module_dependencies` | Show module import/export relationships |
-| `search_prs` | Search GitHub PRs and issues (via API) |
+| `get_pr_details` | Fetch PR descriptions, reviews, and comments |
+| `search_issues` | Search GitHub Issues for context |
 
 ---
 
@@ -159,7 +171,7 @@ CodeCompass deeply integrates with the [GitHub Copilot SDK](https://github.com/g
 
 - **`CopilotClient`** — Manages the Copilot CLI process lifecycle
 - **`create_session()`** — Creates sessions with custom tools, system messages, and streaming
-- **`@define_tool`** — All 10 custom tools use the SDK's Pydantic-based tool definition
+- **`@define_tool`** — All 11 custom tools use the SDK's Pydantic-based tool definition
 - **Streaming** — Real-time `assistant.message_delta` events for responsive UX
 - **Multi-turn** — Persistent sessions maintain conversation context across turns
 - **Session hooks** — Custom event handlers for the agent lifecycle
@@ -198,13 +210,13 @@ codecompass/
 └── src/codecompass/
     ├── __init__.py                # Package metadata
     ├── __main__.py                # python -m codecompass
-    ├── cli.py                     # Click CLI (8 commands)
+    ├── cli.py                     # Click CLI (9 commands)
     ├── models.py                  # Pydantic data models
     ├── agent/
     │   ├── agent.py               # Core orchestration logic
     │   ├── client.py              # Copilot SDK client wrapper
     │   ├── prompts.py             # System prompts per mode
-    │   └── tools.py               # 10 custom tools for the agent
+    │   └── tools.py               # 11 custom tools for the agent
     ├── github/
     │   ├── client.py              # GitHub REST API client
     │   └── git.py                 # Local git operations (subprocess)

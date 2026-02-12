@@ -38,3 +38,15 @@ class TestCLI:
         result = runner.invoke(main, [])
         assert result.exit_code == 0
         assert "Commands:" in result.output or "onboard" in result.output
+
+    def test_export_json(self) -> None:
+        result = runner.invoke(main, ["--repo", ".", "export", "--format", "json"])
+        assert result.exit_code == 0
+        assert '"name"' in result.output
+        assert '"languages"' in result.output
+
+    def test_export_help(self) -> None:
+        result = runner.invoke(main, ["export", "--help"])
+        assert result.exit_code == 0
+        assert "markdown" in result.output
+        assert "json" in result.output

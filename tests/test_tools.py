@@ -36,7 +36,7 @@ class TestTools:
 
     def test_build_tools_returns_list(self, tools: list) -> None:
         assert isinstance(tools, list)
-        assert len(tools) >= 9  # We defined 9+ tools
+        assert len(tools) >= 11  # We defined 11 tools
 
     def test_tools_have_names(self, tools: list) -> None:
         for tool in tools:
@@ -56,5 +56,7 @@ class TestTools:
             "detect_stale_docs",
             "get_symbol_info",
             "get_module_dependencies",
+            "get_pr_details",
+            "search_issues",
         }
         assert expected.issubset(names), f"Missing tools: {expected - names}"

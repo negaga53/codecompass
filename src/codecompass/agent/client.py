@@ -37,17 +37,20 @@ class CompassClient:
         model: str = "gpt-4o",
         git_ops: Any = None,
         knowledge_graph: Any = None,
+        github_client: Any = None,
     ) -> None:
         self._repo_path = repo_path
         self._model = model
         self._git_ops = git_ops
         self._knowledge_graph = knowledge_graph
+        self._github_client = github_client
         self._client: CopilotClient | None = None
         self._session: Any = None
         self._tools = build_tools(
             repo_path,
             git_ops=git_ops,
             knowledge_graph=knowledge_graph,
+            github_client=github_client,
         )
 
     # ── lifecycle ────────────────────────────────────────────────────

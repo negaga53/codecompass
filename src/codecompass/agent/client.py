@@ -25,25 +25,30 @@ class CompassClient:
 
     Args:
         repo_path: Absolute path to the repository root.
-        model: LLM model identifier (e.g., ``"gpt-4o"``, ``"gpt-4.1"``).
+        model: LLM model identifier (e.g., ``"gpt-4.1"``).
         git_ops: Optional ``GitOps`` instance for git-based tools.
         knowledge_graph: Optional ``KnowledgeGraph`` instance.
+        github_client: Optional ``GitHubClient`` for PR/issue lookup.
+        github_token: Optional GitHub token. If not provided, uses
+            stored OAuth credentials from ``copilot login``.
     """
 
     def __init__(
         self,
         repo_path: Path,
         *,
-        model: str = "gpt-4o",
+        model: str = "gpt-4.1",
         git_ops: Any = None,
         knowledge_graph: Any = None,
         github_client: Any = None,
+        github_token: str | None = None,
     ) -> None:
         self._repo_path = repo_path
         self._model = model
         self._git_ops = git_ops
         self._knowledge_graph = knowledge_graph
         self._github_client = github_client
+        self._github_token = github_token
         self._client: CopilotClient | None = None
         self._session: Any = None
         self._tools = build_tools(
@@ -56,8 +61,21 @@ class CompassClient:
     # ── lifecycle ────────────────────────────────────────────────────
 
     async def start(self) -> None:
-        """Start the Copilot SDK client."""
-        self._client = CopilotClient()
+        """Start the Copilot SDK client.
+
+        Uses the stored OAuth credentials from ``copilot login`` by default.
+        If a *github_token* was provided via constructor, passes it to the
+        CLI instead (note: PATs may not work with the Copilot API — device
+        flow OAuth tokens are recommended).
+        """
+        opts: dict[str, Any] = {}
+        if self._github_token:
+            opts["github_token"] = self._github_token
+            opts["use_logged_in_user"] = False
+        else:
+            opts["use_logged_in_user"] = True
+
+        self._client = CopilotClient(opts if opts else None)
         await self._client.start()
         logger.info("Copilot SDK client started")
 

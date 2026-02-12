@@ -69,14 +69,28 @@ A beautiful Textual-based TUI with:
 ### Prerequisites
 
 - **Python 3.10+**
-- **[GitHub Copilot CLI](https://docs.github.com/en/copilot/how-tos/set-up/install-copilot-cli)** installed and authenticated
 - **Git** (for git history features)
+- A **GitHub account with Copilot access** (Copilot Free tier works)
 
 ### Installation
 
 ```bash
 pip install -e .
 ```
+
+### Authentication
+
+CodeCompass uses the GitHub Copilot SDK, which requires authentication via the bundled Copilot CLI. Run the device-flow login once:
+
+```bash
+# One-time login (opens browser for GitHub OAuth)
+python -c "import copilot; import pathlib; print(pathlib.Path(copilot.__file__).parent / 'bin')"
+# Then run: <path>/copilot login
+```
+
+Or simply run `codecompass onboard` — if you're not authenticated, it will prompt you.
+
+> **Note**: Personal Access Tokens (PATs) are **not supported** by the Copilot API. You must use the OAuth device-flow login.
 
 ### Usage
 
@@ -132,7 +146,7 @@ codecompass tui
 │  │              │  │  Found PR #42...          │  │
 │  └─────────────┘  └───────────────────────────┘  │
 │  ┌──────────────────────────────────────────────┐ │
-│  │ Status: Connected (model: gpt-4o)            │ │
+│  │ Status: Connected (model: gpt-4.1)           │ │
 │  └──────────────────────────────────────────────┘ │
 └──────────────────────────────────────────────────┘
         ↕ GitHub Copilot SDK (JSON-RPC)
@@ -191,7 +205,7 @@ async def search_git_history(params: SearchGitHistoryParams) -> str:
 # Create session with custom tools
 client = CopilotClient()
 session = await client.create_session({
-    "model": "gpt-4o",
+    "model": "gpt-4.1",
     "streaming": True,
     "tools": [search_git_history],
     "system_message": {"content": ONBOARDING_PROMPT},
@@ -240,16 +254,16 @@ CodeCompass can be configured via environment variables or a `.codecompass.toml`
 ```toml
 # .codecompass.toml
 [codecompass]
-model = "gpt-4o"
+model = "gpt-4.1"
 tree_depth = 4
 max_file_size_kb = 512
 log_level = "WARNING"
 ```
 
 Environment variables:
-- `GITHUB_TOKEN` — GitHub token for API features (PR search, etc.)
-- `CODECOMPASS_MODEL` — LLM model to use
+- `CODECOMPASS_MODEL` — LLM model to use (default: `gpt-4.1`)
 - `CODECOMPASS_LOG_LEVEL` — Logging verbosity
+- `GITHUB_TOKEN` — GitHub token for API features (PR/issue search)
 
 ---
 

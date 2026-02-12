@@ -114,8 +114,12 @@ async def _interactive_session(
 
         console.print(
             "\n[bold cyan]🧭 CodeCompass[/] — Interactive mode "
-            "(type [bold]exit[/] or [bold]quit[/] to leave)\n"
+            f"[dim](model: {settings.model})[/]\n"
+            "[dim]Commands: /model <name> to switch model, "
+            "/models to list, exit to quit[/]\n"
         )
+
+        current_model = settings.model
 
         while True:
             try:
@@ -123,9 +127,38 @@ async def _interactive_session(
             except (EOFError, KeyboardInterrupt):
                 break
 
-            if question.strip().lower() in ("exit", "quit", "q"):
+            stripped = question.strip()
+            if stripped.lower() in ("exit", "quit", "q"):
                 break
-            if not question.strip():
+            if not stripped:
+                continue
+
+            # Slash commands
+            if stripped.lower() == "/models":
+                console.print(
+                    "\n[bold]Available models:[/] claude-sonnet-4, "
+                    "claude-haiku-4.5, gpt-4.1, gpt-5.1, "
+                    "gpt-5.2-codex, o4-mini"
+                )
+                console.print(f"[dim]Current: {current_model}[/]\n")
+                continue
+
+            if stripped.lower().startswith("/model "):
+                new_model = stripped[7:].strip()
+                if not new_model:
+                    console.print(f"[dim]Current model: {current_model}[/]")
+                    continue
+                # Recreate the client with the new model
+                console.print(f"[dim]Switching to {new_model}…[/]")
+                await client.stop()
+                client._model = new_model
+                current_model = new_model
+                await client.start()
+                await client.create_session(
+                    system_message=system_message,
+                    streaming=True,
+                )
+                console.print(f"[green]✓ Now using {new_model}[/]\n")
                 continue
 
             console.print("[bold blue]CodeCompass:[/] ", end="")

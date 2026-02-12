@@ -378,7 +378,10 @@ class CodeCompassApp(App[None]):
             self.query_one("#settings-panel", SettingsPanel).remove_class("visible")
 
     async def _save_settings(self) -> None:
-        """Read values from settings inputs and write to .codecompass.toml."""
+        """Read values from settings inputs and write to .codecompass.toml.
+
+        If the model changed, reconnects the SDK client with the new model.
+        """
         from codecompass.utils.config import write_config, config_path
 
         try:
@@ -390,6 +393,7 @@ class CodeCompassApp(App[None]):
             tree_depth = int(tree_depth_str) if tree_depth_str else 4
             max_file_size_kb = int(max_size_str) if max_size_str else 512
 
+            old_model = self._settings.model
             new_settings = Settings(
                 model=model or "gpt-4.1",
                 log_level=log_level or "WARNING",
@@ -407,16 +411,48 @@ class CodeCompassApp(App[None]):
             self.query_one("#settings-panel", SettingsPanel).remove_class("visible")
 
             status = self.query_one("#status-bar", Static)
-            status.update(f"✓ Settings saved to {target.name} (model: {model})")
-
             messages = self.query_one("#messages", VerticalScroll)
-            await messages.mount(
-                ChatMessage(
-                    f"⚙️ Settings saved: model={model}, log_level={log_level}, "
-                    f"tree_depth={tree_depth}, max_file_size_kb={max_file_size_kb}",
-                    role="system",
+
+            # Reconnect SDK if model changed
+            model_changed = model and model != old_model
+            if model_changed and self._compass_client:
+                status.update(f"🔄 Switching model to {model}…")
+                try:
+                    await self._compass_client.stop()
+                    self._compass_client._model = model
+                    await self._compass_client.start()
+                    sys_msg = (
+                        self._agent.system_message("onboarding")
+                        if self._agent
+                        else None
+                    )
+                    await self._compass_client.create_session(
+                        system_message=sys_msg,
+                        streaming=True,
+                    )
+                    status.update(f"🧭 Connected (model: {model})")
+                    await messages.mount(
+                        ChatMessage(
+                            f"🔄 Model switched to **{model}**. "
+                            "Previous conversation context was reset.",
+                            role="system",
+                        )
+                    )
+                except Exception as exc:
+                    status.update(f"⚠️ Model switch failed: {exc}")
+                    await messages.mount(
+                        ChatMessage(f"⚠️ Could not switch model: {exc}", role="system")
+                    )
+            else:
+                status.update(f"✓ Settings saved to {target.name} (model: {model})")
+                await messages.mount(
+                    ChatMessage(
+                        f"⚙️ Settings saved: model={model}, log_level={log_level}, "
+                        f"tree_depth={tree_depth}, max_file_size_kb={max_file_size_kb}",
+                        role="system",
+                    )
                 )
-            )
+
         except Exception as exc:
             status = self.query_one("#status-bar", Static)
             status.update(f"⚠️ Error saving settings: {exc}")

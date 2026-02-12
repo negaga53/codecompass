@@ -79,6 +79,101 @@ class Settings(BaseModel):
         return cls(**values)
 
 
+def config_path(repo_path: str | Path | None = None) -> Path:
+    """Return the path to the config file for the given repo (or cwd)."""
+    base = Path(repo_path).resolve() if repo_path else Path.cwd()
+    return base / _CONFIG_FILENAME
+
+
+def write_config(
+    settings: "Settings",
+    path: str | Path | None = None,
+    *,
+    keys: list[str] | None = None,
+) -> Path:
+    """Write settings to a ``.codecompass.toml`` file.
+
+    Args:
+        settings: The Settings object to save.
+        path: Target file path. Defaults to ``.codecompass.toml`` in cwd.
+        keys: If given, only write these keys. Otherwise write all non-default.
+
+    Returns:
+        The path that was written.
+    """
+    target = Path(path) if path else config_path()
+
+    all_fields = {
+        "model": settings.model,
+        "log_level": settings.log_level,
+        "tree_depth": settings.tree_depth,
+        "max_file_size_kb": settings.max_file_size_kb,
+    }
+
+    if keys:
+        values = {k: v for k, v in all_fields.items() if k in keys}
+    else:
+        values = all_fields
+
+    # Build TOML by hand to avoid extra deps (no tomli_w in stdlib)
+    lines = ["[codecompass]"]
+    for k, v in sorted(values.items()):
+        if isinstance(v, str):
+            lines.append(f'{k} = "{v}"')
+        elif isinstance(v, bool):
+            lines.append(f"{k} = {'true' if v else 'false'}")
+        else:
+            lines.append(f"{k} = {v}")
+    lines.append("")
+
+    target.write_text("\n".join(lines), encoding="utf-8")
+    return target
+
+
+def update_config_key(key: str, value: str, path: str | Path | None = None) -> Path:
+    """Set a single key in the config file, preserving other values.
+
+    If the file doesn't exist it's created. If the key already exists
+    it's updated in-place.
+
+    Args:
+        key: Setting name (e.g. ``model``, ``log_level``).
+        value: New value as a string.
+        path: Config file path. Defaults to ``.codecompass.toml`` in cwd.
+
+    Returns:
+        The path that was written.
+    """
+    target = Path(path) if path else config_path()
+
+    existing: dict[str, Any] = {}
+    if target.is_file():
+        existing = _parse_toml(target)
+
+    # Coerce numeric values
+    if key in ("tree_depth", "max_file_size_kb"):
+        try:
+            existing[key] = int(value)
+        except ValueError:
+            existing[key] = value
+    else:
+        existing[key] = value
+
+    # Write back
+    lines = ["[codecompass]"]
+    for k, v in sorted(existing.items()):
+        if isinstance(v, str):
+            lines.append(f'{k} = "{v}"')
+        elif isinstance(v, bool):
+            lines.append(f"{k} = {'true' if v else 'false'}")
+        else:
+            lines.append(f"{k} = {v}")
+    lines.append("")
+
+    target.write_text("\n".join(lines), encoding="utf-8")
+    return target
+
+
 def _parse_toml(path: Path) -> dict[str, Any]:
     """Parse a TOML config file and return a flat dict of settings.
 

@@ -111,8 +111,14 @@ AI-powered explanation of recent code changes:
 A beautiful Textual-based TUI with:
 - Split-pane layout (sidebar summary + chat)
 - Real-time streaming responses
-- Thinking indicators during agent processing
+- Thinking indicators during agent processing- **Settings panel** (Ctrl+S) — edit model, log level, tree depth inline
 
+### ⚙️ Configuration Management
+Generate and edit `.codecompass.toml` config files from the CLI or TUI:
+- `codecompass config init` — interactive wizard to create a config file
+- `codecompass config show` — display resolved settings with source attribution
+- `codecompass config set model gpt-4.1` — update a single setting
+- `codecompass config path` — show config file location
 ---
 
 ## 🚀 Quick Start
@@ -313,7 +319,7 @@ codecompass/
 └── src/codecompass/
     ├── __init__.py                # Package metadata
     ├── __main__.py                # python -m codecompass
-    ├── cli.py                     # Click CLI (11 commands)
+    ├── cli.py                     # Click CLI (12 commands)
     ├── models.py                  # Pydantic data models
     ├── agent/
     │   ├── agent.py               # Core orchestration logic

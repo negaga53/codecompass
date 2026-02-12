@@ -9,6 +9,7 @@ Commands:
     audit         Audit documentation freshness
     chat          Interactive multi-turn chat
     tui           Launch the interactive terminal UI
+    config        Manage CodeCompass configuration
 """
 
 from __future__ import annotations
@@ -538,6 +539,165 @@ def tui(ctx: click.Context) -> None:
 
     app = CodeCompassApp(repo_path=repo_path, settings=settings)
     app.run()
+
+
+# ── config ───────────────────────────────────────────────────────────
+
+
+@main.group()
+@click.pass_context
+def config(ctx: click.Context) -> None:
+    """Manage CodeCompass configuration.
+
+    View, create, and edit `.codecompass.toml` settings files.
+    """
+    pass
+
+
+@config.command(name="init")
+@click.option("--force", "-f", is_flag=True, help="Overwrite existing config file.")
+@click.pass_context
+def config_init(ctx: click.Context, force: bool) -> None:
+    """Generate a .codecompass.toml configuration file with sensible defaults.
+
+    Interactively prompts for key settings (model, log level, etc.)
+    and writes them to .codecompass.toml in the current directory.
+    """
+    from codecompass.utils.config import config_path, write_config
+
+    repo_path: Path = ctx.obj["repo_path"]
+    target = config_path(repo_path)
+
+    if target.is_file() and not force:
+        console.print(
+            f"[yellow]Config already exists:[/] {target}\n"
+            "Use [bold]--force[/] to overwrite."
+        )
+        return
+
+    # Interactive prompts with defaults
+    model = click.prompt("LLM model", default="gpt-4.1")
+    log_level = click.prompt(
+        "Log level",
+        default="WARNING",
+        type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR"], case_sensitive=False),
+    )
+    tree_depth = click.prompt("Directory tree depth", default=4, type=int)
+    max_file_size_kb = click.prompt("Max file size (KB)", default=512, type=int)
+
+    settings = Settings(
+        model=model,
+        log_level=log_level.upper(),
+        tree_depth=tree_depth,
+        max_file_size_kb=max_file_size_kb,
+    )
+    write_config(settings, target)
+    console.print(f"\n[green]✓[/] Config written to [bold]{target}[/]")
+
+
+@config.command(name="show")
+@click.pass_context
+def config_show(ctx: click.Context) -> None:
+    """Display the current resolved configuration.
+
+    Shows all settings with their values and sources (default, env, file, CLI).
+    """
+    from codecompass.utils.config import config_path
+
+    settings: Settings = ctx.obj["settings"]
+    repo_path: Path = ctx.obj["repo_path"]
+    cfg_file = config_path(repo_path)
+
+    from rich.table import Table
+
+    table = Table(title="CodeCompass Configuration", show_lines=True)
+    table.add_column("Setting", style="bold cyan")
+    table.add_column("Value")
+    table.add_column("Source", style="dim")
+
+    # Determine sources
+    file_vals: dict = {}
+    if cfg_file.is_file():
+        from codecompass.utils.config import _parse_toml
+        file_vals = _parse_toml(cfg_file)
+
+    import os
+
+    env_map = {
+        "model": "CODECOMPASS_MODEL",
+        "log_level": "CODECOMPASS_LOG_LEVEL",
+        "tree_depth": "CODECOMPASS_TREE_DEPTH",
+        "max_file_size_kb": "CODECOMPASS_MAX_FILE_SIZE_KB",
+        "github_token": "GITHUB_TOKEN",
+    }
+
+    defaults = Settings()
+    for field_name in ["model", "log_level", "tree_depth", "max_file_size_kb", "repo_path", "github_token"]:
+        val = getattr(settings, field_name)
+        # Determine source
+        env_key = env_map.get(field_name)
+        if env_key and os.environ.get(env_key):
+            source = f"env ({env_key})"
+        elif field_name in file_vals:
+            source = f"file ({cfg_file.name})"
+        elif val == getattr(defaults, field_name):
+            source = "default"
+        else:
+            source = "CLI flag"
+
+        # Mask token
+        display_val = str(val)
+        if field_name == "github_token" and val:
+            display_val = val[:4] + "…" + val[-4:] if len(val) > 8 else "****"
+
+        table.add_row(field_name, display_val, source)
+
+    console.print()
+    console.print(table)
+    console.print(f"\n[dim]Config file: {cfg_file}{'  ✓ exists' if cfg_file.is_file() else '  (not found)'}[/]")
+    console.print()
+
+
+@config.command(name="set")
+@click.argument("key")
+@click.argument("value")
+@click.pass_context
+def config_set(ctx: click.Context, key: str, value: str) -> None:
+    """Set a single configuration value.
+
+    Updates (or creates) .codecompass.toml with the given key-value pair.
+
+    Example:
+        codecompass config set model gpt-4.1
+        codecompass config set log_level DEBUG
+        codecompass config set tree_depth 6
+    """
+    from codecompass.utils.config import update_config_key, config_path
+
+    valid_keys = {"model", "log_level", "tree_depth", "max_file_size_kb"}
+    if key not in valid_keys:
+        console.print(
+            f"[red]Invalid key:[/] {key}\n"
+            f"Valid keys: {', '.join(sorted(valid_keys))}"
+        )
+        return
+
+    repo_path: Path = ctx.obj["repo_path"]
+    target = config_path(repo_path)
+    update_config_key(key, value, target)
+    console.print(f"[green]✓[/] Set [bold]{key}[/] = [cyan]{value}[/] in {target}")
+
+
+@config.command(name="path")
+@click.pass_context
+def config_path_cmd(ctx: click.Context) -> None:
+    """Print the path to the configuration file."""
+    from codecompass.utils.config import config_path
+
+    repo_path: Path = ctx.obj["repo_path"]
+    p = config_path(repo_path)
+    exists = "✓ exists" if p.is_file() else "not found"
+    click.echo(f"{p}  ({exists})")
 
 
 # ── export ───────────────────────────────────────────────────────────

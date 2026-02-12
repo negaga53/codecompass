@@ -5,7 +5,7 @@ from __future__ import annotations
 from textual.app import ComposeResult
 from textual.reactive import reactive
 from textual.widget import Widget
-from textual.widgets import Markdown, Static, Tree
+from textual.widgets import Markdown, Static, Tree, Input, Button, Label
 
 
 # ---------------------------------------------------------------------------
@@ -111,3 +111,80 @@ class SummaryPanel(Widget):
             md.update(value)
         except Exception:  # noqa: BLE001
             pass
+
+
+# ---------------------------------------------------------------------------
+# Settings panel
+# ---------------------------------------------------------------------------
+
+
+class SettingsPanel(Widget):
+    """Inline settings editor widget.
+
+    Displays editable settings fields with a save button.
+    When saved, writes changes to ``.codecompass.toml``.
+    """
+
+    DEFAULT_CSS = """
+    SettingsPanel {
+        layout: vertical;
+        padding: 1 2;
+        height: auto;
+        max-height: 30;
+        background: $surface;
+        border: tall $primary;
+    }
+
+    SettingsPanel Label {
+        margin: 1 0 0 0;
+        color: $text-muted;
+    }
+
+    SettingsPanel Input {
+        margin: 0 0 0 0;
+    }
+
+    SettingsPanel .settings-title {
+        text-style: bold;
+        color: $primary;
+        margin: 0 0 1 0;
+    }
+
+    SettingsPanel .btn-row {
+        layout: horizontal;
+        height: 3;
+        margin: 1 0 0 0;
+    }
+
+    SettingsPanel Button {
+        margin: 0 1 0 0;
+    }
+    """
+
+    def __init__(
+        self,
+        model: str = "gpt-4.1",
+        log_level: str = "WARNING",
+        tree_depth: int = 4,
+        max_file_size_kb: int = 512,
+        **kwargs: object,
+    ) -> None:
+        super().__init__(**kwargs)
+        self._model = model
+        self._log_level = log_level
+        self._tree_depth = tree_depth
+        self._max_file_size_kb = max_file_size_kb
+
+    def compose(self) -> ComposeResult:
+        yield Static("⚙️ Settings", classes="settings-title")
+        yield Label("Model:")
+        yield Input(value=self._model, id="settings-model")
+        yield Label("Log Level (DEBUG/INFO/WARNING/ERROR):")
+        yield Input(value=self._log_level, id="settings-log-level")
+        yield Label("Directory Tree Depth:")
+        yield Input(value=str(self._tree_depth), id="settings-tree-depth")
+        yield Label("Max File Size (KB):")
+        yield Input(value=str(self._max_file_size_kb), id="settings-max-file-size")
+        with Static(classes="btn-row"):
+            yield Button("Save", variant="primary", id="settings-save")
+            yield Button("Cancel", variant="default", id="settings-cancel")

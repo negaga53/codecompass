@@ -13,10 +13,10 @@ from typing import Any
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.widgets import Footer, Header, Input, Static, Markdown
+from textual.widgets import Footer, Header, Input, Static, Markdown, Button
 
 from codecompass.agent.agent import CodeCompassAgent
-from codecompass.ui.widgets import ChatMessage, SummaryPanel
+from codecompass.ui.widgets import ChatMessage, SummaryPanel, SettingsPanel
 from codecompass.utils.config import Settings
 
 
@@ -102,6 +102,13 @@ class CodeCompassApp(App[None]):
         padding: 1 1;
     }
 
+    #settings-panel {
+        display: none;
+    }
+    #settings-panel.visible {
+        display: block;
+    }
+
     #thinking-indicator {
         display: none;
         color: $warning;
@@ -116,6 +123,7 @@ class CodeCompassApp(App[None]):
         Binding("ctrl+q", "quit", "Quit"),
         Binding("ctrl+l", "clear_chat", "Clear"),
         Binding("ctrl+n", "new_session", "New session"),
+        Binding("ctrl+s", "toggle_settings", "Settings"),
     ]
 
     def __init__(
@@ -130,6 +138,7 @@ class CodeCompassApp(App[None]):
         self._agent: CodeCompassAgent | None = None
         self._compass_client: Any = None  # CompassClient
         self._is_processing = False
+        self._settings_visible = False
 
     # ── Compose ──────────────────────────────────────────────────────
 
@@ -138,6 +147,13 @@ class CodeCompassApp(App[None]):
         with Horizontal(id="main"):
             with Vertical(id="sidebar"):
                 yield SummaryPanel(id="sidebar-content")
+                yield SettingsPanel(
+                    model=self._settings.model,
+                    log_level=self._settings.log_level,
+                    tree_depth=self._settings.tree_depth,
+                    max_file_size_kb=self._settings.max_file_size_kb,
+                    id="settings-panel",
+                )
             with Vertical(id="chat-area"):
                 yield VerticalScroll(id="messages")
                 yield Static("", id="thinking-indicator")
@@ -343,6 +359,67 @@ class CodeCompassApp(App[None]):
                 await messages.mount(
                     ChatMessage(f"⚠️ Could not create new session: {exc}", role="system")
                 )
+
+    def action_toggle_settings(self) -> None:
+        """Show or hide the settings panel in the sidebar."""
+        panel = self.query_one("#settings-panel", SettingsPanel)
+        self._settings_visible = not self._settings_visible
+        if self._settings_visible:
+            panel.add_class("visible")
+        else:
+            panel.remove_class("visible")
+
+    async def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle settings panel save/cancel buttons."""
+        if event.button.id == "settings-save":
+            await self._save_settings()
+        elif event.button.id == "settings-cancel":
+            self._settings_visible = False
+            self.query_one("#settings-panel", SettingsPanel).remove_class("visible")
+
+    async def _save_settings(self) -> None:
+        """Read values from settings inputs and write to .codecompass.toml."""
+        from codecompass.utils.config import write_config, config_path
+
+        try:
+            model = self.query_one("#settings-model", Input).value.strip()
+            log_level = self.query_one("#settings-log-level", Input).value.strip().upper()
+            tree_depth_str = self.query_one("#settings-tree-depth", Input).value.strip()
+            max_size_str = self.query_one("#settings-max-file-size", Input).value.strip()
+
+            tree_depth = int(tree_depth_str) if tree_depth_str else 4
+            max_file_size_kb = int(max_size_str) if max_size_str else 512
+
+            new_settings = Settings(
+                model=model or "gpt-4.1",
+                log_level=log_level or "WARNING",
+                tree_depth=tree_depth,
+                max_file_size_kb=max_file_size_kb,
+            )
+            target = config_path(self._repo_path)
+            write_config(new_settings, target)
+
+            # Update running settings
+            self._settings = new_settings
+
+            # Hide panel and confirm
+            self._settings_visible = False
+            self.query_one("#settings-panel", SettingsPanel).remove_class("visible")
+
+            status = self.query_one("#status-bar", Static)
+            status.update(f"✓ Settings saved to {target.name} (model: {model})")
+
+            messages = self.query_one("#messages", VerticalScroll)
+            await messages.mount(
+                ChatMessage(
+                    f"⚙️ Settings saved: model={model}, log_level={log_level}, "
+                    f"tree_depth={tree_depth}, max_file_size_kb={max_file_size_kb}",
+                    role="system",
+                )
+            )
+        except Exception as exc:
+            status = self.query_one("#status-bar", Static)
+            status.update(f"⚠️ Error saving settings: {exc}")
 
     # ── Cleanup ──────────────────────────────────────────────────────
 

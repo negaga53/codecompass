@@ -7,9 +7,9 @@
 **Contest**
 
 - Root: `C:\Users\home\Documents\Projects\Contest`
-- Languages: python
+- Languages: python, shell
 - Frameworks: pytest, textual, click, pydantic
-- Files: 38  |  Lines: 4599
+- Files: 42  |  Lines: 5419
 - Entry points: src/codecompass/__main__.py, src/codecompass/ui/app.py
 - Test dirs: tests
 - README: yes
@@ -64,21 +64,45 @@ Contest/
 ├── .gitignore
 ├── LICENSE
 ├── README.md
-└── pyproject.toml
+├── e2e_test.py
+├── onboarding.md
+├── pyproject.toml
+├── setup.ps1
+└── setup.sh
 ```
 
 ## Modules
 
+- `src.codecompass.__main__`
+- `src.codecompass.agent`
+- `src.codecompass.agent.agent`
+- `src.codecompass.agent.client`
+- `src.codecompass.agent.tools`
+- `src.codecompass.cli`
+- `src.codecompass.github`
+- `src.codecompass.github.client`
+- `src.codecompass.github.git`
+- `src.codecompass.indexer`
+- `src.codecompass.indexer.knowledge_graph`
+- `src.codecompass.indexer.scanner`
+- `src.codecompass.models`
+- `src.codecompass.ui`
+- `src.codecompass.ui.app`
+- `src.codecompass.ui.widgets`
+- `src.codecompass.utils`
+- `src.codecompass.utils.config`
+- `src.codecompass.utils.formatting`
 
 ## Key Symbols
 
 | Symbol | Kind | File | Line |
 |--------|------|------|------|
+| `test_basic` | function | `e2e_test.py` | 13 |
+| `test_with_tools` | function | `e2e_test.py` | 57 |
+| `on_event` | function | `e2e_test.py` | 100 |
+| `main` | function | `e2e_test.py` | 145 |
 | `AgentMode` | class | `src\codecompass\agent\agent.py` | 26 |
 | `CodeCompassAgent` | class | `src\codecompass\agent\agent.py` | 47 |
-| `__init__` | function | `src\codecompass\agent\agent.py` | 60 |
-| `_ensure_scanned` | function | `src\codecompass\agent\agent.py` | 73 |
-| `_ensure_graph` | function | `src\codecompass\agent\agent.py` | 84 |
 | `summary` | function | `src\codecompass\agent\agent.py` | 93 |
 | `graph` | function | `src\codecompass\agent\agent.py` | 98 |
 | `system_message` | function | `src\codecompass\agent\agent.py` | 102 |
@@ -87,16 +111,13 @@ Contest/
 | `explore_architecture` | function | `src\codecompass\agent\agent.py` | 141 |
 | `audit_docs` | function | `src\codecompass\agent\agent.py` | 164 |
 | `CompassClient` | class | `src\codecompass\agent\client.py` | 21 |
-| `__init__` | function | `src\codecompass\agent\client.py` | 33 |
-| `start` | function | `src\codecompass\agent\client.py` | 58 |
-| `stop` | function | `src\codecompass\agent\client.py` | 64 |
-| `__aenter__` | function | `src\codecompass\agent\client.py` | 77 |
-| `__aexit__` | function | `src\codecompass\agent\client.py` | 81 |
-| `create_session` | function | `src\codecompass\agent\client.py` | 86 |
-| `send_and_collect` | function | `src\codecompass\agent\client.py` | 125 |
-| `send_streaming` | function | `src\codecompass\agent\client.py` | 170 |
-| `has_session` | function | `src\codecompass\agent\client.py` | 210 |
-| `on_event` | function | `src\codecompass\agent\client.py` | 190 |
+| `start` | function | `src\codecompass\agent\client.py` | 63 |
+| `stop` | function | `src\codecompass\agent\client.py` | 82 |
+| `create_session` | function | `src\codecompass\agent\client.py` | 104 |
+| `send_and_collect` | function | `src\codecompass\agent\client.py` | 143 |
+| `send_streaming` | function | `src\codecompass\agent\client.py` | 188 |
+| `on_event` | function | `src\codecompass\agent\client.py` | 208 |
+| `has_session` | function | `src\codecompass\agent\client.py` | 228 |
 | `get_onboarding_prompt` | function | `src\codecompass\agent\prompts.py` | 231 |
 | `SearchGitHistoryParams` | class | `src\codecompass\agent\tools.py` | 22 |
 | `GetFileContributorsParams` | class | `src\codecompass\agent\tools.py` | 28 |
@@ -122,16 +143,47 @@ Contest/
 | `get_module_dependencies` | function | `src\codecompass\agent\tools.py` | 360 |
 | `get_pr_details` | function | `src\codecompass\agent\tools.py` | 390 |
 | `search_issues` | function | `src\codecompass\agent\tools.py` | 453 |
-| `_configure_logging` | function | `src\codecompass\cli.py` | 30 |
-| `_init_git` | function | `src\codecompass\cli.py` | 38 |
+| `on_delta` | function | `src\codecompass\cli.py` | 132 |
+| `main` | function | `src\codecompass\cli.py` | 151 |
+| `onboard` | function | `src\codecompass\cli.py` | 180 |
+| `ask` | function | `src\codecompass\cli.py` | 203 |
+| `why` | function | `src\codecompass\cli.py` | 224 |
+| `architecture` | function | `src\codecompass\cli.py` | 242 |
+| `contributors` | function | `src\codecompass\cli.py` | 267 |
+| `audit` | function | `src\codecompass\cli.py` | 299 |
+| `chat` | function | `src\codecompass\cli.py` | 324 |
+| `tui` | function | `src\codecompass\cli.py` | 345 |
+| `export` | function | `src\codecompass\cli.py` | 372 |
+| `GitHubClientError` | class | `src\codecompass\github\client.py` | 17 |
+| `GitHubClient` | class | `src\codecompass\github\client.py` | 21 |
+| `close` | function | `src\codecompass\github\client.py` | 55 |
+| `get_repo_info` | function | `src\codecompass\github\client.py` | 78 |
+| `list_prs` | function | `src\codecompass\github\client.py` | 82 |
+| `get_pr` | function | `src\codecompass\github\client.py` | 94 |
+| `get_pr_comments` | function | `src\codecompass\github\client.py` | 98 |
+| `get_pr_reviews` | function | `src\codecompass\github\client.py` | 102 |
+| `search_issues` | function | `src\codecompass\github\client.py` | 106 |
+| `get_commits` | function | `src\codecompass\github\client.py` | 127 |
+| `get_commit` | function | `src\codecompass\github\client.py` | 139 |
+| `GitOpsError` | class | `src\codecompass\github\git.py` | 18 |
+| `GitOps` | class | `src\codecompass\github\git.py` | 22 |
+| `log` | function | `src\codecompass\github\git.py` | 70 |
+| `search_log` | function | `src\codecompass\github\git.py` | 101 |
+| `blame` | function | `src\codecompass\github\git.py` | 147 |
+| `contributors` | function | `src\codecompass\github\git.py` | 188 |
+| `file_contributors` | function | `src\codecompass\github\git.py` | 222 |
+| `diff` | function | `src\codecompass\github\git.py` | 250 |
+| `status` | function | `src\codecompass\github\git.py` | 266 |
+| `current_branch` | function | `src\codecompass\github\git.py` | 272 |
+| `remote_url` | function | `src\codecompass\github\git.py` | 280 |
+| `KnowledgeGraph` | class | `src\codecompass\indexer\knowledge_graph.py` | 14 |
 
 ## Dependencies
 
-- `src.codecompass.cli` → `__future__`
-- `src.codecompass.cli` → `asyncio`
-- `src.codecompass.cli` → `logging`
-- `src.codecompass.cli` → `sys`
-- `src.codecompass.cli` → `pathlib`
+- `e2e_test` → `copilot`
+- `e2e_test` → `codecompass.agent.tools`
+- `e2e_test` → `codecompass.github.git`
+- `e2e_test` → `codecompass.indexer.knowledge_graph`
 - `src.codecompass.cli` → `click`
 - `src.codecompass.cli` → `rich.console`
 - `src.codecompass.cli` → `codecompass`
@@ -139,21 +191,70 @@ Contest/
 - `src.codecompass.cli` → `codecompass.github.git`
 - `src.codecompass.cli` → `codecompass.agent.client`
 - `src.codecompass.cli` → `codecompass.indexer.knowledge_graph`
-- `src.codecompass.cli` → `codecompass.agent.client`
-- `src.codecompass.cli` → `codecompass.indexer.knowledge_graph`
-- `src.codecompass.cli` → `codecompass.agent.agent`
-- `src.codecompass.cli` → `codecompass.utils.formatting`
-- `src.codecompass.cli` → `codecompass.agent.agent`
-- `src.codecompass.cli` → `codecompass.agent.agent`
-- `src.codecompass.cli` → `codecompass.agent.agent`
-- `src.codecompass.cli` → `codecompass.github.git`
-- `src.codecompass.cli` → `codecompass.utils.formatting`
-- `src.codecompass.cli` → `codecompass.agent.agent`
 - `src.codecompass.cli` → `codecompass.agent.agent`
 - `src.codecompass.cli` → `codecompass.utils.formatting`
 - `src.codecompass.cli` → `codecompass.ui.app`
-- `src.codecompass.cli` → `json`
-- `src.codecompass.cli` → `codecompass.agent.agent`
-- `src.codecompass.models` → `__future__`
-- `src.codecompass.models` → `datetime`
-- `src.codecompass.models` → `enum`
+- `src.codecompass.models` → `pydantic`
+- `src.codecompass.__main__` → `codecompass.cli`
+- `src.codecompass.agent.agent` → `codecompass.agent.prompts`
+- `src.codecompass.agent.agent` → `codecompass.indexer.knowledge_graph`
+- `src.codecompass.agent.agent` → `codecompass.indexer.scanner`
+- `src.codecompass.agent.agent` → `codecompass.models`
+- `src.codecompass.agent.agent` → `codecompass.utils.config`
+- `src.codecompass.agent.client` → `copilot`
+- `src.codecompass.agent.client` → `codecompass.agent.tools`
+- `src.codecompass.agent.tools` → `pydantic`
+- `src.codecompass.agent.tools` → `copilot`
+- `src.codecompass.agent.tools` → `codecompass.indexer.scanner`
+- `src.codecompass.agent` → `codecompass.agent.agent`
+- `src.codecompass.agent` → `codecompass.agent.prompts`
+- `src.codecompass.github.client` → `httpx`
+- `src.codecompass.github.client` → `codecompass.utils.config`
+- `src.codecompass.github` → `codecompass.github.client`
+- `src.codecompass.github` → `codecompass.github.git`
+- `src.codecompass.indexer.knowledge_graph` → `codecompass.models`
+- `src.codecompass.indexer.scanner` → `codecompass.models`
+- `src.codecompass.indexer` → `codecompass.indexer.knowledge_graph`
+- `src.codecompass.indexer` → `codecompass.indexer.scanner`
+- `src.codecompass.ui.app` → `textual.app`
+- `src.codecompass.ui.app` → `textual.binding`
+- `src.codecompass.ui.app` → `textual.containers`
+- `src.codecompass.ui.app` → `textual.widgets`
+- `src.codecompass.ui.app` → `codecompass.agent.agent`
+- `src.codecompass.ui.app` → `codecompass.ui.widgets`
+- `src.codecompass.ui.app` → `codecompass.utils.config`
+- `src.codecompass.ui.app` → `codecompass.agent.client`
+- `src.codecompass.ui.app` → `codecompass.github.git`
+- `src.codecompass.ui.widgets` → `textual.app`
+- `src.codecompass.ui.widgets` → `textual.reactive`
+- `src.codecompass.ui.widgets` → `textual.widget`
+- `src.codecompass.ui.widgets` → `textual.widgets`
+- `src.codecompass.ui` → `codecompass.ui.app`
+- `src.codecompass.ui` → `codecompass.ui.widgets`
+- `src.codecompass.utils.config` → `pydantic`
+- `src.codecompass.utils.config` → `tomllib`
+- `src.codecompass.utils.config` → `tomli`
+- `src.codecompass.utils.formatting` → `rich.console`
+- `src.codecompass.utils.formatting` → `rich.markdown`
+- `src.codecompass.utils.formatting` → `rich.panel`
+- `src.codecompass.utils.formatting` → `rich.syntax`
+- `src.codecompass.utils.formatting` → `rich.table`
+- `src.codecompass.utils.formatting` → `rich.text`
+- `src.codecompass.utils.formatting` → `codecompass.models`
+- `src.codecompass.utils` → `codecompass.utils.config`
+- `src.codecompass.utils` → `codecompass.utils.formatting`
+- `tests.test_cli` → `click.testing`
+- `tests.test_cli` → `codecompass.cli`
+- `tests.test_git` → `pytest`
+- `tests.test_git` → `codecompass.github.git`
+- `tests.test_indexer` → `pytest`
+- `tests.test_indexer` → `codecompass.indexer.knowledge_graph`
+- `tests.test_indexer` → `codecompass.indexer.scanner`
+- `tests.test_indexer` → `codecompass.models`
+- `tests.test_models` → `codecompass.models`
+- `tests.test_models` → `codecompass.utils.config`
+- `tests.test_tools` → `unittest.mock`
+- `tests.test_tools` → `pytest`
+- `tests.test_tools` → `codecompass.agent.tools`
+- `tests.test_tools` → `codecompass.github.git`
+- `tests.test_tools` → `codecompass.indexer.knowledge_graph`

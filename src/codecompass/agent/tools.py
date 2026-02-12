@@ -58,6 +58,10 @@ class SearchPRsParams(BaseModel):
     max_results: int = Field(default=5, description="Maximum results to return")
 
 
+class GetCommitFilesParams(BaseModel):
+    commit_hash: str = Field(description="Git commit SHA (full or short) to list files for")
+
+
 class GetSymbolInfoParams(BaseModel):
     symbol_name: str = Field(description="Class, function, or module name to look up")
 
@@ -130,6 +134,25 @@ def build_tools(
             return f"Error searching git history: {exc}"
 
     tools.append(search_git_history)
+
+    # ── get_commit_files ────────────────────────────────────────────
+
+    @define_tool(description="List all files changed in a specific git commit. Use this to see exactly what was added, modified, or deleted in a given commit.")
+    async def get_commit_files(params: GetCommitFilesParams) -> str:
+        if git_ops is None:
+            return "Git operations not available (not a git repository)"
+        try:
+            files = git_ops.commit_files(params.commit_hash)
+            if not files:
+                return f"No files found for commit `{params.commit_hash}`"
+            lines = [f"Files changed in commit `{params.commit_hash}`:"]
+            for f in files:
+                lines.append(f"- `{f}`")
+            return "\n".join(lines)
+        except Exception as exc:
+            return f"Error getting commit files: {exc}"
+
+    tools.append(get_commit_files)
 
     # ── get_file_contributors ────────────────────────────────────────
 

@@ -78,7 +78,7 @@ class TestToolsMeta:
 
     def test_build_tools_returns_list(self, tools: list) -> None:
         assert isinstance(tools, list)
-        assert len(tools) >= 11
+        assert len(tools) >= 12
 
     def test_tools_have_names(self, tools: list) -> None:
         for tool in tools:
@@ -90,6 +90,7 @@ class TestToolsMeta:
         names = {t.name for t in tools}
         expected = {
             "search_git_history",
+            "get_commit_files",
             "get_file_contributors",
             "read_source_file",
             "search_code",
@@ -126,6 +127,30 @@ class TestSearchGitHistory:
         tool = _get_tool(tools, "search_git_history")
         result = _call_tool_text(tool, query="xyznonexistent999")
         assert "No commits found" in result
+
+
+class TestGetCommitFiles:
+    """Integration tests for the get_commit_files tool."""
+
+    def test_commit_files_first_commit(self, tools: list) -> None:
+        """Should list files from the initial commit."""
+        tool = _get_tool(tools, "get_commit_files")
+        # Get the initial commit hash first
+        from codecompass.github.git import GitOps
+        git = GitOps(REPO_ROOT)
+        log = git.log(max_count=100)
+        if log:
+            first_hash = log[-1]["short_hash"]
+            text = _call_tool_text(tool, commit_hash=first_hash)
+            assert "Files changed" in text or "file" in text.lower()
+            # The first commit should have added files
+            assert "`" in text  # backtick-quoted file paths
+
+    def test_commit_files_nonexistent(self, tools: list) -> None:
+        """Nonexistent commit should return an error."""
+        tool = _get_tool(tools, "get_commit_files")
+        text = _call_tool_text(tool, commit_hash="0000000000000000000000000000000000000000")
+        assert "No files" in text or "Error" in text
 
 
 class TestGetFileContributors:
@@ -435,6 +460,7 @@ class TestContentValidation:
         # Provide valid minimal args for each tool
         valid_args: dict[str, dict] = {
             "search_git_history": {"query": "test"},
+            "get_commit_files": {"commit_hash": "HEAD"},
             "get_file_contributors": {"file_path": "pyproject.toml"},
             "read_source_file": {"file_path": "pyproject.toml"},
             "search_code": {"query": "codecompass", "file_pattern": "*.toml"},

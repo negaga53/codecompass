@@ -247,11 +247,12 @@ codecompass tui
 
 ### Custom Tools
 
-CodeCompass extends the Copilot agent with **11 custom tools**:
+CodeCompass extends the Copilot agent with **12 custom tools**:
 
 | Tool | Purpose |
 |------|---------||
 | `search_git_history` | Search commit messages for a topic or keyword |
+| `get_commit_files` | List all files changed in a specific commit |
 | `get_file_contributors` | Who worked on a specific file |
 | `read_source_file` | Read file contents (with line range support) |
 | `search_code` | Grep across repository source files |

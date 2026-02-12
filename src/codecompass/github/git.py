@@ -247,19 +247,42 @@ class GitOps:
 
     # ── diff ─────────────────────────────────────────────────────────
 
-    def diff(self, staged: bool = False) -> str:
-        """Get the current diff (working tree or staged).
+    def diff(self, ref_a: str | None = None, ref_b: str | None = None, *, staged: bool = False) -> str:
+        """Get a diff.
+
+        When called with no arguments, shows the working tree diff.
+        When called with one ref, shows changes since that ref.
+        When called with two refs, shows the diff between them.
 
         Args:
-            staged: If True, show staged changes instead of unstaged.
+            ref_a: First commit ref (optional).
+            ref_b: Second commit ref (optional, requires ref_a).
+            staged: If True and no refs given, show staged changes.
 
         Returns:
             Unified diff string.
         """
         cmd = ["git", "diff"]
-        if staged:
+        if ref_a and ref_b:
+            cmd += [ref_a, ref_b]
+        elif ref_a:
+            cmd.append(ref_a)
+        elif staged:
             cmd.append("--staged")
         return self._run(cmd, check=False)
+
+    def commit_files(self, commit_hash: str) -> list[str]:
+        """List files changed in a specific commit.
+
+        Args:
+            commit_hash: The commit SHA (full or short).
+
+        Returns:
+            List of file paths changed in that commit.
+        """
+        cmd = ["git", "diff-tree", "--no-commit-id", "--name-only", "-r", commit_hash]
+        output = self._run(cmd, check=False)
+        return [f for f in output.strip().splitlines() if f.strip()]
 
     # ── status ───────────────────────────────────────────────────────
 

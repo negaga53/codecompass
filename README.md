@@ -41,7 +41,7 @@ $ codecompass ask "What depends on the git module?"
 
 ### The 11-Tool Arsenal
 
-CodeCompass gives the AI **11 specialized tools simultaneously** — git history search, contributor analysis, code search, symbol lookup, dependency tracing, doc staleness detection, GitHub PR/issue context — all available in a single session. The plain CLI has generic file tools.
+CodeCompass gives the AI **12 specialized tools simultaneously** — git history search, commit file listing, contributor analysis, code search, symbol lookup, dependency tracing, doc staleness detection, GitHub PR/issue context — all available in a single session. The plain CLI has generic file tools.
 
 ### Auto-Context Injection
 
@@ -58,7 +58,7 @@ Point CodeCompass at any repo and get an instant, structured overview:
 - CI/CD setup, test directories, and contribution guidelines
 
 ### 💬 Multi-Turn Codebase Chat
-Ask questions in natural language. The AI agent uses **11 custom tools** to ground answers in actual code:
+Ask questions in natural language. The AI agent uses **12 custom tools** to ground answers in actual code:
 - Read and search source files
 - Search git commit history
 - Analyze contributor patterns
@@ -272,7 +272,7 @@ CodeCompass deeply integrates with the [GitHub Copilot SDK](https://github.com/g
 
 - **`CopilotClient`** — Manages the Copilot CLI process lifecycle
 - **`create_session()`** — Creates sessions with custom tools, system messages, and streaming
-- **`@define_tool`** — All 11 custom tools use the SDK's Pydantic-based tool definition
+- **`@define_tool`** — All 12 custom tools use the SDK's Pydantic-based tool definition
 - **Streaming** — Real-time `assistant.message_delta` events for responsive UX
 - **Multi-turn** — Persistent sessions maintain conversation context across turns
 - **Session hooks** — Custom event handlers for the agent lifecycle
@@ -319,7 +319,7 @@ codecompass/
     │   ├── agent.py               # Core orchestration logic
     │   ├── client.py              # Copilot SDK client wrapper
     │   ├── prompts.py             # System prompts per mode
-    │   └── tools.py               # 11 custom tools for the agent
+    │   └── tools.py               # 12 custom tools for the agent
     ├── github/
     │   ├── client.py              # GitHub REST API client
     │   └── git.py                 # Local git operations (subprocess)

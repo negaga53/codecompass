@@ -6,7 +6,46 @@
 
 CodeCompass helps developers understand, navigate, and contribute to unfamiliar codebases by combining automated repository analysis with an AI agent powered by GitHub Copilot. It builds a semantic knowledge graph from your code and uses custom tools to let the AI answer deep questions about architecture, history, contributors, and documentation freshness.
 
-![CodeCompass Demo](docs/demo-placeholder.png)
+---
+
+## 🤷 Why CodeCompass Instead of Just Running `copilot`?
+
+Good question. The plain Copilot CLI can answer code questions too. Here's what's **fundamentally different**:
+
+### The Knowledge Graph Advantage
+
+When you run CodeCompass, it **pre-indexes your entire codebase** (AST parsing, import tracing, symbol mapping) in ~0.1 seconds. The AI then has **instant structured access** to information that would take the plain CLI dozens of sequential file reads to discover:
+
+```
+# Plain copilot CLI — "What modules depend on git.py?"
+# → Needs to read every .py file, parse imports, correlate... 5-10 tool calls
+
+# CodeCompass — same question answered instantly from the knowledge graph:
+$ codecompass ask "What depends on the git module?"
+# → KG returns: codecompass.cli, codecompass.ui.app, tests.test_git, tests.test_tools
+#    All in ONE tool call via get_module_dependencies
+```
+
+### Concrete Use Cases Only CodeCompass Can Do
+
+| Use Case | Plain `copilot` CLI | CodeCompass |
+|----------|-------------------|-------------|
+| **Generate a dependency graph** | Impossible — no AST analysis | `codecompass graph` → Mermaid diagram |
+| **Export portable onboarding doc** | Can't output to file | `codecompass export -o onboard.md` |
+| **Explain recent changes** | No git diff integration | `codecompass diff-explain` |
+| **Find who owns a file** | No git blame tools | `get_file_contributors` tool (instant) |
+| **Trace module dependencies** | Read files manually | `get_module_dependencies` (from KG) |
+| **Detect stale documentation** | Manual comparison | `detect_stale_docs` (auto cross-ref) |
+| **Full repo onboarding** | Start from scratch each time | `codecompass onboard` (instant scan) |
+| **Architecture with context** | Generic prompt | Domain-specific prompts + pre-built KG |
+
+### The 11-Tool Arsenal
+
+CodeCompass gives the AI **11 specialized tools simultaneously** — git history search, contributor analysis, code search, symbol lookup, dependency tracing, doc staleness detection, GitHub PR/issue context — all available in a single session. The plain CLI has generic file tools.
+
+### Auto-Context Injection
+
+Every CodeCompass command **automatically builds the knowledge graph** before the AI starts. No manual steps. The AI begins every conversation already knowing your repo's full structure, languages, frameworks, entry points, and dependency tree.
 
 ---
 
@@ -51,10 +90,22 @@ Detect stale documentation:
 - Install instructions that don't match current dependencies
 - Docstring drift from actual function signatures
 
-### � Export
+### 📊 Export
 Generate portable onboarding documents or structured data:
 - `codecompass export --format=markdown` — full Markdown onboarding guide
 - `codecompass export --format=json` — structured JSON knowledge graph
+
+### 🕸️ Dependency Graph
+Generate visual module dependency diagrams:
+- `codecompass graph` — Mermaid flowchart of internal module dependencies
+- `codecompass graph -f text` — plain text dependency listing
+- `codecompass graph -o deps.md` — save to file for embedding in docs
+
+### 📝 Diff Explain
+AI-powered explanation of recent code changes:
+- Analyzes the last N commits with full diffs
+- Explains WHAT changed, WHY, and the impact
+- Perfect for catching up after time away from a project
 
 ### �🖥️ Rich Terminal UI
 A beautiful Textual-based TUI with:
@@ -144,6 +195,18 @@ codecompass export --format markdown -o onboarding.md
 
 # Export knowledge graph as JSON
 codecompass export --format json -o knowledge.json
+
+# Generate a dependency graph (Mermaid diagram)
+codecompass graph
+
+# Generate dependency graph as plain text
+codecompass graph -f text -o deps.txt
+
+# AI explanation of recent changes
+codecompass diff-explain
+
+# Explain the last 10 commits
+codecompass diff-explain -n 10
 
 # Start interactive chat mode
 codecompass chat
@@ -249,7 +312,7 @@ codecompass/
 └── src/codecompass/
     ├── __init__.py                # Package metadata
     ├── __main__.py                # python -m codecompass
-    ├── cli.py                     # Click CLI (9 commands)
+    ├── cli.py                     # Click CLI (11 commands)
     ├── models.py                  # Pydantic data models
     ├── agent/
     │   ├── agent.py               # Core orchestration logic

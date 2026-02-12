@@ -139,9 +139,17 @@ class KnowledgeGraph:
 
     @staticmethod
     def _path_to_module(path: Path, root: Path) -> str:
-        """Convert a file path to a dotted Python module name."""
+        """Convert a file path to a dotted Python module name.
+
+        Strips a leading ``src`` directory when it is used as a layout
+        directory (i.e. ``src/package/…``) so that the resulting module
+        name matches actual Python import paths.
+        """
         rel = path.relative_to(root).with_suffix("")
         parts = list(rel.parts)
         if parts and parts[-1] == "__init__":
             parts = parts[:-1]
+        # Strip src layout prefix
+        if parts and parts[0] == "src":
+            parts = parts[1:]
         return ".".join(parts)

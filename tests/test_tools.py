@@ -251,7 +251,7 @@ class TestGetModuleDependencies:
 
     def test_module_deps(self, tools: list) -> None:
         tool = _get_tool(tools, "get_module_dependencies")
-        result = _call_tool_text(tool, module_name="src.codecompass.cli")
+        result = _call_tool_text(tool, module_name="codecompass.cli")
         assert "Dependencies" in result
         # cli.py imports many modules
         assert "codecompass" in result
@@ -411,7 +411,7 @@ class TestContentValidation:
     def test_module_deps_shows_imports(self, tools: list) -> None:
         """cli module depends on click, rich, etc."""
         tool = _get_tool(tools, "get_module_dependencies")
-        text = _call_tool_text(tool, module_name="src.codecompass.cli")
+        text = _call_tool_text(tool, module_name="codecompass.cli")
         assert "Imports" in text or "depends on" in text.lower()
 
     def test_git_history_format(self, tools: list) -> None:
@@ -442,7 +442,7 @@ class TestContentValidation:
             "find_related_docs": {"file_path": "pyproject.toml"},
             "detect_stale_docs": {},
             "get_symbol_info": {"symbol_name": "GitOps"},
-            "get_module_dependencies": {"module_name": "src.codecompass.cli"},
+            "get_module_dependencies": {"module_name": "codecompass.cli"},
             "get_pr_details": {"query": "test"},
             "search_issues": {"query": "test"},
         }

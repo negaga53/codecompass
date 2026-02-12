@@ -337,6 +337,193 @@ def chat(ctx: click.Context) -> None:
     asyncio.run(_interactive_session(repo_path, settings, sys_msg))
 
 
+# ── graph ────────────────────────────────────────────────────────────
+
+
+@main.command()
+@click.option(
+    "--output", "-o", "output_path",
+    default=None,
+    help="Output file path for the Mermaid diagram (default: stdout).",
+)
+@click.option(
+    "--format", "-f", "fmt",
+    type=click.Choice(["mermaid", "text"]),
+    default="mermaid",
+    help="Output format (mermaid or plain text).",
+)
+@click.pass_context
+def graph(ctx: click.Context, output_path: str | None, fmt: str) -> None:
+    """Generate a visual dependency graph of the codebase.
+
+    Outputs a Mermaid flowchart diagram showing module dependencies,
+    import relationships, and architectural layers. This is impossible
+    with the plain Copilot CLI — it requires AST analysis of the entire
+    codebase.
+
+    Example:
+        codecompass graph -o deps.md
+        codecompass graph -f text
+    """
+    from codecompass.indexer.knowledge_graph import KnowledgeGraph
+
+    repo_path: Path = ctx.obj["repo_path"]
+
+    kg = KnowledgeGraph()
+    kg.build(repo_path)
+
+    # Identify project modules (exclude stdlib, third-party, tests)
+    all_mods = kg.all_modules()
+
+    # Detect the project package name from the repo
+    # (first dotted module that has sub-modules)
+    project_root_pkg = None
+    for m in all_mods:
+        parts = m.split(".")
+        if len(parts) >= 2:
+            candidate = parts[0]
+            # Check if multiple modules share this prefix
+            count = sum(1 for x in all_mods if x.startswith(candidate + "."))
+            if count >= 3:
+                project_root_pkg = candidate
+                break
+
+    if not project_root_pkg:
+        console.print("[yellow]Could not detect project package. Showing all modules.[/]")
+        project_root_pkg = ""
+
+    project_mods = sorted(set(
+        m for m in all_mods
+        if m.startswith(project_root_pkg) and not m.startswith(("tests.", "e2e_"))
+    ))
+
+    if fmt == "text":
+        lines = ["# Module Dependency Graph", ""]
+        project_mod_set = set(project_mods)
+        for mod in project_mods:
+            deps = kg.dependencies(mod)
+            internal_deps = sorted(d for d in deps if d in project_mod_set)
+            if internal_deps:
+                lines.append(f"{mod}:")
+                for d in internal_deps:
+                    lines.append(f"  → {d}")
+                lines.append("")
+        output = "\n".join(lines)
+    else:
+        # Mermaid flowchart
+        lines = ["```mermaid", "flowchart TD"]
+
+        # Create sanitized IDs for Mermaid
+        def _mid(m: str) -> str:
+            return m.replace(".", "_")
+
+        # Detect layers by package
+        layers: dict[str, list[str]] = {}
+        for mod in project_mods:
+            parts = mod.split(".")
+            if len(parts) >= 2:
+                layer = ".".join(parts[:2])
+            else:
+                layer = parts[0]
+            layers.setdefault(layer, []).append(mod)
+
+        # Add subgraphs for each layer
+        for layer, mods in sorted(layers.items()):
+            label = layer.split(".")[-1].title()
+            lines.append(f"    subgraph {label}")
+            for mod in mods:
+                short = mod.split(".")[-1]
+                lines.append(f"        {_mid(mod)}[{short}]")
+            lines.append("    end")
+
+        # Add edges (only internal project deps)
+        project_mod_set = set(project_mods)
+        for mod in project_mods:
+            deps = kg.dependencies(mod)
+            for dep in sorted(deps):
+                if dep in project_mod_set:
+                    lines.append(f"    {_mid(mod)} --> {_mid(dep)}")
+
+        lines.append("```")
+        output = "\n".join(lines)
+
+    if output_path:
+        Path(output_path).write_text(output, encoding="utf-8")
+        console.print(f"[green]Dependency graph written to {output_path}[/]")
+    else:
+        click.echo(output)
+
+
+# ── diff-explain ─────────────────────────────────────────────────────
+
+
+@main.command(name="diff-explain")
+@click.option("--commits", "-n", default=5, help="Number of recent commits to analyze.")
+@click.pass_context
+def diff_explain(ctx: click.Context, commits: int) -> None:
+    """AI-powered explanation of recent changes.
+
+    Analyzes the last N commits using git diff, then uses the Copilot
+    SDK to generate a human-readable summary explaining WHAT changed,
+    WHY (based on commit messages and code context), and what a new
+    developer should know about these changes.
+
+    This is a unique CodeCompass feature — it combines git history
+    analysis with AI reasoning that the plain Copilot CLI cannot do.
+    """
+    from codecompass.agent.agent import CodeCompassAgent
+    from codecompass.github.git import GitOps, GitOpsError
+
+    settings: Settings = ctx.obj["settings"]
+    repo_path: Path = ctx.obj["repo_path"]
+
+    try:
+        git = GitOps(repo_path)
+    except GitOpsError as exc:
+        console.print(f"[red]Error:[/] {exc}")
+        return
+
+    # Gather recent commits
+    log = git.log(max_count=commits)
+    if not log:
+        console.print("[yellow]No commits found.[/]")
+        return
+
+    # Build context from commits + diffs
+    context_parts = ["## Recent Changes\n"]
+    for entry in log:
+        context_parts.append(
+            f"### Commit `{entry['short_hash']}` — {entry['message']}\n"
+            f"- **Author:** {entry['author']}\n"
+            f"- **Date:** {entry['date']}\n"
+        )
+        try:
+            diff = git.diff(f"{entry['hash']}~1", entry['hash'])
+            if diff:
+                # Truncate very long diffs
+                if len(diff) > 2000:
+                    diff = diff[:2000] + "\n... (truncated)"
+                context_parts.append(f"```diff\n{diff}\n```\n")
+        except Exception:
+            context_parts.append("_(diff not available)_\n")
+
+    diff_context = "\n".join(context_parts)
+
+    prompt = (
+        "Analyze these recent code changes and provide:\n"
+        "1. A high-level summary of what changed\n"
+        "2. WHY these changes were likely made (based on commit messages and code)\n"
+        "3. Impact assessment — what parts of the system were affected\n"
+        "4. What a new developer should understand about these changes\n\n"
+        f"{diff_context}"
+    )
+
+    agent = CodeCompassAgent(repo_path, settings=settings)
+    sys_msg = agent.system_message("onboarding")
+
+    asyncio.run(_run_with_sdk(repo_path, settings, sys_msg, prompt))
+
+
 # ── tui ──────────────────────────────────────────────────────────────
 
 
@@ -428,7 +615,7 @@ def export(ctx: click.Context, fmt: str, output_path: str | None) -> None:
         project_prefix = summary.name.lower().replace("-", "_").replace(" ", "_")
         project_modules = sorted(
             m for m in kg.all_modules()
-            if m.startswith(project_prefix) or m.startswith("src.")
+            if m.startswith(project_prefix)
         )
         for mod in project_modules:
             lines.append(f"- `{mod}`")

@@ -66,6 +66,29 @@ A beautiful Textual-based TUI with:
 
 ## 🚀 Quick Start
 
+### One-Line Setup
+
+**Linux / macOS:**
+```bash
+git clone https://github.com/negaga53/codecompass && cd codecompass && bash setup.sh
+```
+
+**Windows (PowerShell):**
+```powershell
+git clone https://github.com/negaga53/codecompass; cd codecompass; .\setup.ps1
+```
+
+The interactive setup script will:
+1. Check prerequisites (Python 3.10+, Git)
+2. Create a virtual environment
+3. Install CodeCompass and all dependencies
+4. Guide you through GitHub Copilot authentication (OAuth device-flow)
+5. Show example commands to get started
+
+---
+
+### Manual Installation
+
 ### Prerequisites
 
 - **Python 3.10+**
@@ -221,6 +244,8 @@ codecompass/
 ├── pyproject.toml                 # Project config + dependencies
 ├── README.md                      # This file
 ├── LICENSE                        # MIT License
+├── setup.sh                       # Interactive setup (Linux/macOS)
+├── setup.ps1                      # Interactive setup (Windows)
 └── src/codecompass/
     ├── __init__.py                # Package metadata
     ├── __main__.py                # python -m codecompass

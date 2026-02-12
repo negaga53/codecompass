@@ -64,7 +64,7 @@ class TestSettings:
 
     def test_defaults(self) -> None:
         settings = Settings.load()
-        assert settings.model == "gpt-4o"
+        assert settings.model == "gpt-4.1"
         assert settings.max_file_size_kb > 0
 
     def test_overrides(self) -> None:

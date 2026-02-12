@@ -7,7 +7,6 @@ the GitHub API — all from within a conversation.
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 from typing import Any

@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 from textual.app import ComposeResult
-from textual.containers import Vertical, VerticalScroll
 from textual.reactive import reactive
 from textual.widget import Widget
-from textual.widgets import Label, Markdown, Static, Tree
+from textual.widgets import Markdown, Static, Tree
 
 
 # ---------------------------------------------------------------------------

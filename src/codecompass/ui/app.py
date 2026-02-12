@@ -7,7 +7,6 @@ Provides a split-pane terminal UI with:
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 from typing import Any
 
@@ -172,7 +171,7 @@ class CodeCompassApp(App[None]):
         # 3. Welcome message
         welcome = (
             f"👋 Welcome! I've scanned **{summary.name}**.\n\n"
-            f"- **Languages:** {', '.join(l.value for l in summary.languages)}\n"
+            f"- **Languages:** {', '.join(lang.value for lang in summary.languages)}\n"
             f"- **Files:** {summary.total_files} ({summary.total_lines:,} lines)\n"
             f"- **Frameworks:** {', '.join(f.name for f in summary.frameworks) or 'none detected'}\n\n"
             "Ask me anything about this codebase — architecture, \"why\" questions, "
@@ -200,7 +199,6 @@ class CodeCompassApp(App[None]):
         """Initialize the CompassClient and create a session."""
         from codecompass.agent.client import CompassClient
         from codecompass.github.git import GitOps, GitOpsError
-        from codecompass.indexer.knowledge_graph import KnowledgeGraph
 
         # Git ops
         try:

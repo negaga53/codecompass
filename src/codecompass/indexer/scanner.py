@@ -172,7 +172,7 @@ class RepoScanner:
         return RepoSummary(
             name=self.root.name,
             root=str(self.root),
-            languages=sorted(languages, key=lambda l: l.value),
+            languages=sorted(languages, key=lambda lang: lang.value),
             frameworks=frameworks,
             total_files=len(files),
             total_lines=total_lines,

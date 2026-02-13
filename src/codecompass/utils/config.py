@@ -19,7 +19,7 @@ class Settings(BaseModel):
     Resolution order (highest priority first):
     1. Explicit constructor kwargs
     2. Environment variables
-    3. ``.codecompass.toml`` in the working directory
+    3. ``.codecompass.toml`` in the repo/base path (or working directory)
     4. Defaults defined here
     """
 
@@ -38,25 +38,39 @@ class Settings(BaseModel):
         description="Max depth for the generated directory-tree view",
     )
     log_level: str = Field(default="WARNING", description="Logging level")
+    premium_usage_warnings: bool = Field(
+        default=True,
+        description="Whether to print premium-request usage warnings in AI commands",
+    )
 
     # ----- class methods ----
 
     @classmethod
-    def load(cls, overrides: dict[str, Any] | None = None) -> "Settings":
+    def load(
+        cls,
+        overrides: dict[str, Any] | None = None,
+        *,
+        base_path: str | Path | None = None,
+    ) -> "Settings":
         """Build a ``Settings`` instance honouring env vars and config files.
 
         Args:
             overrides: Explicit key-value overrides (e.g. from CLI flags).
+            base_path: Repository path to use when resolving ``.codecompass.toml``.
 
         Returns:
             A fully resolved ``Settings`` object.
         """
         values: dict[str, Any] = {}
 
+        effective_base = base_path
+        if overrides and overrides.get("repo_path"):
+            effective_base = str(overrides["repo_path"])
+
         # 1 — Try reading a local config file
-        config_path = Path.cwd() / _CONFIG_FILENAME
-        if config_path.is_file():
-            values.update(_parse_toml(config_path))
+        cfg_path = config_path(effective_base)
+        if cfg_path.is_file():
+            values.update(_parse_toml(cfg_path))
 
         # 2 — Environment variables (prefixed CODECOMPASS_)
         env_map: dict[str, str] = {
@@ -66,6 +80,7 @@ class Settings(BaseModel):
             "CODECOMPASS_MAX_FILE_SIZE_KB": "max_file_size_kb",
             "CODECOMPASS_TREE_DEPTH": "tree_depth",
             "CODECOMPASS_LOG_LEVEL": "log_level",
+            "CODECOMPASS_PREMIUM_USAGE_WARNINGS": "premium_usage_warnings",
         }
         for env_key, field_name in env_map.items():
             env_val = os.environ.get(env_key)
@@ -108,6 +123,7 @@ def write_config(
         "log_level": settings.log_level,
         "tree_depth": settings.tree_depth,
         "max_file_size_kb": settings.max_file_size_kb,
+        "premium_usage_warnings": settings.premium_usage_warnings,
     }
 
     if keys:
@@ -155,6 +171,14 @@ def update_config_key(key: str, value: str, path: str | Path | None = None) -> P
         try:
             existing[key] = int(value)
         except ValueError:
+            existing[key] = value
+    elif key == "premium_usage_warnings":
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "y", "on"}:
+            existing[key] = True
+        elif normalized in {"0", "false", "no", "n", "off"}:
+            existing[key] = False
+        else:
             existing[key] = value
     else:
         existing[key] = value

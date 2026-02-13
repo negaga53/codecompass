@@ -109,6 +109,23 @@ def build_tools(
     from copilot import define_tool  # type: ignore[import-untyped]
 
     tools = []
+    repo_root = repo_path.resolve()
+
+    def _safe_repo_path(user_path: str) -> tuple[Path | None, str | None]:
+        raw = (user_path or "").strip()
+        if not raw:
+            return None, "Path cannot be empty"
+        try:
+            candidate = (repo_root / raw).resolve()
+        except Exception:
+            return None, f"Invalid path: {user_path}"
+
+        try:
+            candidate.relative_to(repo_root)
+        except ValueError:
+            return None, f"Access denied: path escapes repository root: {user_path}"
+
+        return candidate, None
 
     # ── search_git_history ───────────────────────────────────────────
 
@@ -178,7 +195,11 @@ def build_tools(
     @define_tool(description="Read the contents of a source file from the repository. Can read the entire file or a specific line range.")
     async def read_source_file(params: ReadFileParams) -> str:
         try:
-            full_path = repo_path / params.file_path
+            full_path, path_err = _safe_repo_path(params.file_path)
+            if path_err:
+                return path_err
+
+            assert full_path is not None
             if not full_path.exists():
                 return f"File not found: {params.file_path}"
             if not full_path.is_file():
@@ -267,7 +288,11 @@ def build_tools(
     @define_tool(description="Find documentation files related to a given source file. Looks for README files in the same directory, adjacent markdown files, and doc-strings.")
     async def find_related_docs(params: FindRelatedDocsParams) -> str:
         try:
-            source_path = repo_path / params.file_path
+            source_path, path_err = _safe_repo_path(params.file_path)
+            if path_err:
+                return path_err
+
+            assert source_path is not None
             if not source_path.exists():
                 return f"File not found: {params.file_path}"
 
@@ -276,7 +301,9 @@ def build_tools(
 
             # Look for markdown files in the same and parent directories
             for d in [search_dir, search_dir.parent]:
-                if d < repo_path:
+                try:
+                    d.resolve().relative_to(repo_root)
+                except ValueError:
                     continue
                 for md in d.glob("*.md"):
                     rel = md.relative_to(repo_path).as_posix()
@@ -311,7 +338,11 @@ def build_tools(
             doc_files: list[Path] = []
 
             if params.doc_path:
-                p = repo_path / params.doc_path
+                p, path_err = _safe_repo_path(params.doc_path)
+                if path_err:
+                    return path_err
+
+                assert p is not None
                 if p.exists():
                     doc_files.append(p)
             else:

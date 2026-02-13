@@ -377,20 +377,27 @@ class TestSecurityBoundaries:
         tool = _get_tool(tools, "read_source_file")
         # Try to escape with ../
         text = _call_tool_text(tool, file_path="../../../../../../etc/passwd")
-        # Either "not found" or we stay inside repo — must NOT expose sensitive data
-        assert "root:" not in text  # Unix passwd content
-        assert (
-            "not found" in text.lower()
-            or "Error" in text
-            or "etc/passwd" in text  # shows path but not content
-        )
+        assert "Access denied" in text
+        assert "root:x:" not in text.lower()
 
     def test_read_source_file_absolute_path(self, tools: list) -> None:
         """Absolute paths should not bypass repo root restriction."""
         tool = _get_tool(tools, "read_source_file")
-        # This is repo_path / "C:\\Windows\\..." which won't exist
+        # Absolute path must be blocked as escaping repo root.
         text = _call_tool_text(tool, file_path="C:\\Windows\\System32\\config\\SAM")
-        assert "not found" in text.lower() or "Error" in text
+        assert "Access denied" in text
+
+    def test_find_related_docs_path_traversal(self, tools: list) -> None:
+        """find_related_docs should reject paths outside repository root."""
+        tool = _get_tool(tools, "find_related_docs")
+        text = _call_tool_text(tool, file_path="../../../../outside.py")
+        assert "Access denied" in text
+
+    def test_detect_stale_docs_path_traversal(self, tools: list) -> None:
+        """detect_stale_docs should reject explicit doc paths outside repo root."""
+        tool = _get_tool(tools, "detect_stale_docs")
+        text = _call_tool_text(tool, doc_path="../../../../README.md")
+        assert "Access denied" in text
 
     def test_search_code_skips_dotgit(self, tools: list) -> None:
         """search_code must skip .git directory contents."""
@@ -636,6 +643,36 @@ class TestSearchIssuesEmpty:
         tool = _get_tool(github_tools, "search_issues")
         text = _call_tool_text(tool, query="nothing")
         assert "No issues found" in text
+
+
+class TestGitHubToolErrorsMocked:
+    """Tests deterministic error handling when GitHub client methods raise."""
+
+    @pytest.fixture()
+    def github_tools(self, git_ops, knowledge_graph):
+        mock_client = MagicMock()
+        mock_client.list_prs = AsyncMock(side_effect=RuntimeError("network down"))
+        mock_client.search_issues = AsyncMock(side_effect=RuntimeError("network down"))
+        mock_client.get_pr = AsyncMock(side_effect=RuntimeError("network down"))
+        mock_client.get_pr_comments = AsyncMock(side_effect=RuntimeError("network down"))
+        mock_client.get_pr_reviews = AsyncMock(side_effect=RuntimeError("network down"))
+
+        return build_tools(
+            REPO_ROOT,
+            git_ops=git_ops,
+            knowledge_graph=knowledge_graph,
+            github_client=mock_client,
+        )
+
+    def test_get_pr_details_error_surface(self, github_tools) -> None:
+        tool = _get_tool(github_tools, "get_pr_details")
+        text = _call_tool_text(tool, query="123")
+        assert text.startswith("Error fetching PR details:")
+
+    def test_search_issues_error_surface(self, github_tools) -> None:
+        tool = _get_tool(github_tools, "search_issues")
+        text = _call_tool_text(tool, query="bug")
+        assert text.startswith("Error searching issues:")
 
 
 # ══════════════════════════════════════════════════════════════════════

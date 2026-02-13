@@ -36,6 +36,11 @@ class KnowledgeGraph:
         Args:
             repo_root: The repository root directory.
         """
+        self.symbols.clear()
+        self.imports.clear()
+        self._deps.clear()
+        self._rdeps.clear()
+
         root = Path(repo_root).resolve()
         for py_file in root.rglob("*.py"):
             # Skip hidden and venv directories

@@ -51,6 +51,8 @@ class CompassClient:
         self._github_token = github_token
         self._client: CopilotClient | None = None
         self._session: Any = None
+        self._active_request: dict[str, Any] | None = None
+        self._request_lock = asyncio.Lock()
         self._tools = build_tools(
             repo_path,
             git_ops=git_ops,
@@ -125,6 +127,7 @@ class CompassClient:
                 await self._session.destroy()
             except Exception:
                 pass
+            self._active_request = None
 
         config: dict[str, Any] = {
             "model": self._model,
@@ -135,8 +138,46 @@ class CompassClient:
             config["system_message"] = system_message
 
         self._session = await self._client.create_session(config)
+        self._session.on(self._on_event)
         logger.info("Session created with model=%s, streaming=%s", self._model, streaming)
         return self._session
+
+    def _on_event(self, event: Any) -> None:
+        """Dispatch SDK events to the current in-flight request collector."""
+        active = self._active_request
+        if active is None:
+            return
+
+        event_type = event.type.value if hasattr(event.type, "value") else str(event.type)
+        event_data = getattr(event, "data", None)
+
+        if event_type == "assistant.message_delta":
+            delta = getattr(event_data, "delta_content", "") or ""
+            if delta:
+                active["response_parts"].append(delta)
+                cb = active.get("on_delta")
+                if cb:
+                    cb(delta)
+            return
+
+        if event_type == "assistant.message":
+            content = getattr(event_data, "content", "") or ""
+            active["full_response"].append(content)
+            return
+
+        if event_type == "session.error":
+            error_msg = (
+                getattr(event_data, "message", None)
+                or getattr(event_data, "error", None)
+                or "Unknown SDK session error"
+            )
+            active["error"] = str(error_msg)
+            active["done"].set()
+            return
+
+        if event_type == "session.idle":
+            active["done"].set()
+            return
 
     # ── messaging ────────────────────────────────────────────────────
 
@@ -157,33 +198,31 @@ class CompassClient:
         """
         if self._session is None:
             raise RuntimeError("No active session. Call create_session() first.")
+        async with self._request_lock:
+            collector = {
+                "done": asyncio.Event(),
+                "response_parts": [],
+                "full_response": [],
+                "error": None,
+                "on_delta": on_delta,
+            }
+            self._active_request = collector
+            try:
+                await self._session.send({"prompt": prompt})
+                await asyncio.wait_for(collector["done"].wait(), timeout=60)
+            except asyncio.TimeoutError as exc:
+                raise RuntimeError("Timed out waiting for Copilot SDK response") from exc
+            finally:
+                self._active_request = None
 
-        done = asyncio.Event()
-        response_parts: list[str] = []
-        full_response: list[str] = []
+            if collector["error"]:
+                raise RuntimeError(f"Copilot SDK session error: {collector['error']}")
 
-        def on_event(event: Any) -> None:
-            event_type = event.type.value if hasattr(event.type, "value") else str(event.type)
-
-            if event_type == "assistant.message_delta":
-                delta = event.data.delta_content or ""
-                response_parts.append(delta)
-                if on_delta and delta:
-                    on_delta(delta)
-            elif event_type == "assistant.message":
-                full_response.append(event.data.content or "")
-            elif event_type == "session.idle":
-                done.set()
-
-        self._session.on(on_event)
-
-        await self._session.send({"prompt": prompt})
-        await done.wait()
-
-        # Prefer the full response if available, otherwise join deltas
-        if full_response:
-            return full_response[-1]
-        return "".join(response_parts)
+            full_response: list[str] = collector["full_response"]
+            response_parts: list[str] = collector["response_parts"]
+            if full_response:
+                return full_response[-1]
+            return "".join(response_parts)
 
     async def send_streaming(
         self,
@@ -201,28 +240,29 @@ class CompassClient:
         """
         if self._session is None:
             raise RuntimeError("No active session. Call create_session() first.")
+        async with self._request_lock:
+            collector = {
+                "done": asyncio.Event(),
+                "response_parts": [],
+                "full_response": [],
+                "error": None,
+                "on_delta": on_delta,
+            }
+            self._active_request = collector
+            try:
+                await self._session.send({"prompt": prompt})
+                await asyncio.wait_for(collector["done"].wait(), timeout=60)
+            except asyncio.TimeoutError as exc:
+                raise RuntimeError("Timed out waiting for Copilot SDK response") from exc
+            finally:
+                self._active_request = None
 
-        done = asyncio.Event()
-        final_content: list[str] = []
+            if collector["error"]:
+                raise RuntimeError(f"Copilot SDK session error: {collector['error']}")
 
-        def on_event(event: Any) -> None:
-            event_type = event.type.value if hasattr(event.type, "value") else str(event.type)
-
-            if event_type == "assistant.message_delta":
-                delta = event.data.delta_content or ""
-                if delta:
-                    on_delta(delta)
-            elif event_type == "assistant.message":
-                final_content.append(event.data.content or "")
-            elif event_type == "session.idle":
-                done.set()
-
-        self._session.on(on_event)
-        await self._session.send({"prompt": prompt})
-        await done.wait()
-
-        if on_done and final_content:
-            on_done(final_content[-1])
+            final_content: list[str] = collector["full_response"]
+            if on_done and final_content:
+                on_done(final_content[-1])
 
     @property
     def has_session(self) -> bool:

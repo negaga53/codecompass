@@ -55,6 +55,16 @@ class TestRepoScanner:
         assert "python" in text.lower()
         assert summary.name in text
 
+    def test_detects_cmakelists_config_file(self, tmp_path: Path) -> None:
+        """Regression test: CMakeLists.txt should be recognized as a config file."""
+        (tmp_path / "CMakeLists.txt").write_text("cmake_minimum_required(VERSION 3.10)\n")
+        (tmp_path / "main.cpp").write_text("int main() { return 0; }\n")
+
+        scanner = RepoScanner(tmp_path)
+        summary = scanner.scan()
+
+        assert "CMakeLists.txt" in summary.config_files
+
 
 class TestKnowledgeGraph:
     """Tests for ``KnowledgeGraph``."""
@@ -98,3 +108,22 @@ class TestKnowledgeGraph:
     def test_query_nonexistent_returns_empty(self, kg: KnowledgeGraph) -> None:
         results = kg.query("NonExistentSymbolXYZ123")
         assert len(results) == 0
+
+    def test_build_resets_state_between_repos(self, tmp_path: Path) -> None:
+        repo_one = tmp_path / "repo_one"
+        repo_two = tmp_path / "repo_two"
+        repo_one.mkdir()
+        repo_two.mkdir()
+
+        (repo_one / "a.py").write_text("def alpha():\n    return 1\n", encoding="utf-8")
+        (repo_two / "b.py").write_text("def beta():\n    return 2\n", encoding="utf-8")
+
+        kg = KnowledgeGraph()
+        kg.build(repo_one)
+        names_one = {s.name for s in kg.symbols.values()}
+        assert "alpha" in names_one
+
+        kg.build(repo_two)
+        names_two = {s.name for s in kg.symbols.values()}
+        assert "beta" in names_two
+        assert "alpha" not in names_two

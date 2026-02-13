@@ -8,6 +8,8 @@ Commands:
     contributors  Show contributor intelligence
     audit         Audit documentation freshness
     chat          Interactive multi-turn chat
+    demo          Print a deterministic, judge-friendly demo script
+    premium-usage Show commands that may consume Copilot premium requests
     tui           Launch the interactive terminal UI
     config        Manage CodeCompass configuration
 """
@@ -21,11 +23,32 @@ from pathlib import Path
 
 import click
 from rich.console import Console
+from rich.table import Table
 
 from codecompass import __version__
 from codecompass.utils.config import Settings
 
 console = Console()
+
+
+_PREMIUM_USAGE: dict[str, tuple[str, str]] = {
+    "ask": ("yes", "Sends prompt to Copilot model via SDK session"),
+    "why": ("yes", "Sends prompt to Copilot model via SDK session"),
+    "architecture": ("yes", "Runs architecture prompt through Copilot model"),
+    "audit": ("yes", "Runs docs-audit prompt through Copilot model"),
+    "chat": ("yes", "Interactive multi-turn model conversation"),
+    "diff-explain": ("yes", "Analyzes commit diffs with Copilot model"),
+    "tui": ("yes", "Chat interactions in TUI use Copilot model"),
+    "onboard --interactive": ("conditional", "Onboarding scan is local; interactive chat uses Copilot model"),
+}
+
+
+def _print_premium_notice(settings: Settings, command_name: str, detail: str) -> None:
+    if not settings.premium_usage_warnings:
+        return
+    console.print(
+        f"[yellow]⚠ Premium usage:[/] `{command_name}` may consume Copilot premium requests. {detail}"
+    )
 
 
 def _configure_logging(level: str) -> None:
@@ -191,7 +214,7 @@ def main(ctx: click.Context, repo: str, log_level: str | None, model: str | None
         overrides["model"] = model
     overrides["repo_path"] = repo
 
-    settings = Settings.load(overrides)
+    settings = Settings.load(overrides, base_path=repo)
     _configure_logging(settings.log_level)
 
     ctx.ensure_object(dict)
@@ -224,6 +247,7 @@ def onboard(ctx: click.Context, interactive: bool) -> None:
     print_onboarding_summary(summary)
 
     if interactive:
+        _print_premium_notice(settings, "onboard --interactive", _PREMIUM_USAGE["onboard --interactive"][1])
         sys_msg = agent.system_message("onboarding")
         asyncio.run(_interactive_session(repo_path, settings, sys_msg))
 
@@ -240,6 +264,7 @@ def ask(ctx: click.Context, question: str) -> None:
 
     settings: Settings = ctx.obj["settings"]
     repo_path: Path = ctx.obj["repo_path"]
+    _print_premium_notice(settings, "ask", _PREMIUM_USAGE["ask"][1])
 
     agent = CodeCompassAgent(repo_path, settings=settings)
     payload = asyncio.run(agent.ask(question))
@@ -261,6 +286,7 @@ def why(ctx: click.Context, question: str) -> None:
 
     settings: Settings = ctx.obj["settings"]
     repo_path: Path = ctx.obj["repo_path"]
+    _print_premium_notice(settings, "why", _PREMIUM_USAGE["why"][1])
 
     agent = CodeCompassAgent(repo_path, settings=settings)
     sys_msg = agent.system_message(AgentMode.WHY)
@@ -279,6 +305,7 @@ def architecture(ctx: click.Context) -> None:
 
     settings: Settings = ctx.obj["settings"]
     repo_path: Path = ctx.obj["repo_path"]
+    _print_premium_notice(settings, "architecture", _PREMIUM_USAGE["architecture"][1])
 
     agent = CodeCompassAgent(repo_path, settings=settings)
     payload = asyncio.run(agent.explore_architecture())
@@ -336,6 +363,7 @@ def audit(ctx: click.Context) -> None:
 
     settings: Settings = ctx.obj["settings"]
     repo_path: Path = ctx.obj["repo_path"]
+    _print_premium_notice(settings, "audit", _PREMIUM_USAGE["audit"][1])
 
     agent = CodeCompassAgent(repo_path, settings=settings)
     payload = asyncio.run(agent.audit_docs())
@@ -362,6 +390,7 @@ def chat(ctx: click.Context) -> None:
 
     settings: Settings = ctx.obj["settings"]
     repo_path: Path = ctx.obj["repo_path"]
+    _print_premium_notice(settings, "chat", _PREMIUM_USAGE["chat"][1])
 
     agent = CodeCompassAgent(repo_path, settings=settings)
     summary = asyncio.run(agent.onboard())
@@ -391,9 +420,8 @@ def graph(ctx: click.Context, output_path: str | None, fmt: str) -> None:
     """Generate a visual dependency graph of the codebase.
 
     Outputs a Mermaid flowchart diagram showing module dependencies,
-    import relationships, and architectural layers. This is impossible
-    with the plain Copilot CLI — it requires AST analysis of the entire
-    codebase.
+    import relationships, and architectural layers using AST analysis
+    of the indexed codebase.
 
     Example:
         codecompass graph -o deps.md
@@ -510,6 +538,7 @@ def diff_explain(ctx: click.Context, commits: int) -> None:
 
     settings: Settings = ctx.obj["settings"]
     repo_path: Path = ctx.obj["repo_path"]
+    _print_premium_notice(settings, "diff-explain", _PREMIUM_USAGE["diff-explain"][1])
 
     try:
         git = GitOps(repo_path)
@@ -558,6 +587,103 @@ def diff_explain(ctx: click.Context, commits: int) -> None:
     asyncio.run(_run_with_sdk(repo_path, settings, sys_msg, prompt))
 
 
+@main.command(name="premium-usage")
+def premium_usage() -> None:
+    """Show which commands may consume Copilot premium requests."""
+    table = Table(title="Copilot Premium Request Usage")
+    table.add_column("Command", style="bold cyan")
+    table.add_column("Consumes Premium Requests")
+    table.add_column("Notes", style="dim")
+
+    for command_name in sorted(_PREMIUM_USAGE):
+        usage, note = _PREMIUM_USAGE[command_name]
+        table.add_row(command_name, usage, note)
+
+    console.print()
+    console.print(table)
+    console.print("\n[dim]Tip: local-only commands like onboard (without --interactive), graph, export, and contributors do not invoke model prompts.[/]")
+    console.print()
+
+
+# ── demo ─────────────────────────────────────────────────────────────
+
+
+@main.command()
+@click.option(
+    "--artifact", "artifact_path",
+    default="demo-deps.md",
+    show_default=True,
+    help="Artifact path for generated dependency graph (when --generate-artifact is used).",
+)
+@click.option(
+    "--generate-artifact",
+    is_flag=True,
+    help="Generate a Mermaid dependency graph artifact for the demo.",
+)
+@click.pass_context
+def demo(ctx: click.Context, artifact_path: str, generate_artifact: bool) -> None:
+    """Print a deterministic, judge-oriented demo flow.
+
+    This command is intentionally network-independent and reproducible.
+    It prints a concise script judges can follow, and can optionally
+    generate a dependency graph artifact for screen-sharing.
+    """
+    from codecompass.indexer.knowledge_graph import KnowledgeGraph
+
+    repo_path: Path = ctx.obj["repo_path"]
+    lines = [
+        "# CodeCompass Judge Demo Script (6-8 minutes)",
+        "",
+        "1) Onboard context",
+        f"   codecompass --repo {repo_path} onboard",
+        "   Expected: project summary (languages, frameworks, tree, entry points)",
+        "",
+        "2) Show deterministic architecture artifact",
+        f"   codecompass --repo {repo_path} graph -f mermaid -o {artifact_path}",
+        "   Expected: Mermaid dependency graph written to disk",
+        "",
+        "3) Ask a dependency question",
+        f"   codecompass --repo {repo_path} ask \"What depends on codecompass.github.git?\"",
+        "   Expected: grounded answer referencing module dependencies",
+        "",
+        "4) Explain recent changes",
+        f"   codecompass --repo {repo_path} diff-explain -n 5",
+        "   Expected: WHAT changed, WHY, and impact summary",
+        "",
+        "5) Audit docs freshness",
+        f"   codecompass --repo {repo_path} audit",
+        "   Expected: stale/inconsistent docs findings or clean audit",
+        "",
+        "6) Reliability proof",
+        "   pytest -q",
+        "   Expected: passing suite summary",
+    ]
+
+    if generate_artifact:
+        kg = KnowledgeGraph()
+        kg.build(repo_path)
+        all_mods = kg.all_modules()
+        project_mods = sorted(m for m in all_mods if m.startswith("codecompass."))
+
+        mermaid = ["```mermaid", "flowchart TD"]
+
+        def _mid(module_name: str) -> str:
+            return module_name.replace(".", "_")
+
+        for m in project_mods:
+            mermaid.append(f"    {_mid(m)}[{m.split('.')[-1]}]")
+        project_set = set(project_mods)
+        for m in project_mods:
+            for dep in sorted(kg.dependencies(m)):
+                if dep in project_set:
+                    mermaid.append(f"    {_mid(m)} --> {_mid(dep)}")
+        mermaid.append("```")
+        Path(artifact_path).write_text("\n".join(mermaid), encoding="utf-8")
+        lines += ["", f"Generated artifact: {artifact_path}"]
+
+    click.echo("\n".join(lines))
+
+
 # ── tui ──────────────────────────────────────────────────────────────
 
 
@@ -569,6 +695,7 @@ def tui(ctx: click.Context) -> None:
 
     settings: Settings = ctx.obj["settings"]
     repo_path: Path = ctx.obj["repo_path"]
+    _print_premium_notice(settings, "tui", _PREMIUM_USAGE["tui"][1])
 
     app = CodeCompassApp(repo_path=repo_path, settings=settings)
     app.run()
@@ -617,12 +744,17 @@ def config_init(ctx: click.Context, force: bool) -> None:
     )
     tree_depth = click.prompt("Directory tree depth", default=4, type=int)
     max_file_size_kb = click.prompt("Max file size (KB)", default=512, type=int)
+    premium_usage_warnings = click.confirm(
+        "Show premium usage warnings for AI commands",
+        default=True,
+    )
 
     settings = Settings(
         model=model,
         log_level=log_level.upper(),
         tree_depth=tree_depth,
         max_file_size_kb=max_file_size_kb,
+        premium_usage_warnings=premium_usage_warnings,
     )
     write_config(settings, target)
     console.print(f"\n[green]✓[/] Config written to [bold]{target}[/]")
@@ -661,11 +793,12 @@ def config_show(ctx: click.Context) -> None:
         "log_level": "CODECOMPASS_LOG_LEVEL",
         "tree_depth": "CODECOMPASS_TREE_DEPTH",
         "max_file_size_kb": "CODECOMPASS_MAX_FILE_SIZE_KB",
+        "premium_usage_warnings": "CODECOMPASS_PREMIUM_USAGE_WARNINGS",
         "github_token": "GITHUB_TOKEN",
     }
 
     defaults = Settings()
-    for field_name in ["model", "log_level", "tree_depth", "max_file_size_kb", "repo_path", "github_token"]:
+    for field_name in ["model", "log_level", "tree_depth", "max_file_size_kb", "premium_usage_warnings", "repo_path", "github_token"]:
         val = getattr(settings, field_name)
         # Determine source
         env_key = env_map.get(field_name)
@@ -707,7 +840,7 @@ def config_set(ctx: click.Context, key: str, value: str) -> None:
     """
     from codecompass.utils.config import update_config_key, config_path
 
-    valid_keys = {"model", "log_level", "tree_depth", "max_file_size_kb"}
+    valid_keys = {"model", "log_level", "tree_depth", "max_file_size_kb", "premium_usage_warnings"}
     if key not in valid_keys:
         console.print(
             f"[red]Invalid key:[/] {key}\n"
@@ -805,11 +938,26 @@ def export(ctx: click.Context, fmt: str, output_path: str | None) -> None:
             "",
         ]
         # List modules that belong to this project
-        project_prefix = summary.name.lower().replace("-", "_").replace(" ", "_")
-        project_modules = sorted(
-            m for m in kg.all_modules()
-            if m.startswith(project_prefix)
-        )
+        all_modules = sorted(kg.all_modules())
+        root_counts: dict[str, int] = {}
+        for module_name in all_modules:
+            root = module_name.split(".")[0]
+            if root.startswith(("tests", "e2e_")):
+                continue
+            root_counts[root] = root_counts.get(root, 0) + 1
+
+        if root_counts:
+            project_root = max(root_counts, key=root_counts.get)
+            project_modules = [
+                m for m in all_modules
+                if (m == project_root or m.startswith(project_root + "."))
+                and not m.startswith(("tests.", "e2e_"))
+            ]
+        else:
+            project_modules = [
+                m for m in all_modules
+                if not m.startswith(("tests.", "e2e_"))
+            ]
         for mod in project_modules:
             lines.append(f"- `{mod}`")
 

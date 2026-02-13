@@ -14,7 +14,7 @@ Good question. The plain Copilot CLI can answer code questions too. Here's what'
 
 ### The Knowledge Graph Advantage
 
-When you run CodeCompass, it **pre-indexes your entire codebase** (AST parsing, import tracing, symbol mapping) in ~0.1 seconds. The AI then has **instant structured access** to information that would take the plain CLI dozens of sequential file reads to discover:
+When you run CodeCompass, it **pre-indexes your codebase** (AST parsing, import tracing, symbol mapping) before the first answer. The AI then has **structured access** to information that would otherwise require many sequential file reads to reconstruct:
 
 ```
 # Plain copilot CLI — "What modules depend on git.py?"
@@ -30,7 +30,7 @@ $ codecompass ask "What depends on the git module?"
 
 | Use Case | Plain `copilot` CLI | CodeCompass |
 |----------|-------------------|-------------|
-| **Generate a dependency graph** | Impossible — no AST analysis | `codecompass graph` → Mermaid diagram |
+| **Generate a dependency graph artifact** | Requires manual/iterative exploration | `codecompass graph` → Mermaid diagram |
 | **Export portable onboarding doc** | Can't output to file | `codecompass export -o onboard.md` |
 | **Explain recent changes** | No git diff integration | `codecompass diff-explain` |
 | **Find who owns a file** | No git blame tools | `get_file_contributors` tool (instant) |
@@ -39,13 +39,19 @@ $ codecompass ask "What depends on the git module?"
 | **Full repo onboarding** | Start from scratch each time | `codecompass onboard` (instant scan) |
 | **Architecture with context** | Generic prompt | Domain-specific prompts + pre-built KG |
 
-### The 11-Tool Arsenal
+### The Tool Arsenal
 
-CodeCompass gives the AI **12 specialized tools simultaneously** — git history search, commit file listing, contributor analysis, code search, symbol lookup, dependency tracing, doc staleness detection, GitHub PR/issue context — all available in a single session. The plain CLI has generic file tools.
+CodeCompass gives the AI **12 specialized tools** in a single session — git history search, commit file listing, contributor analysis, code search, symbol lookup, dependency tracing, doc staleness detection, and GitHub PR/issue context.
 
 ### Auto-Context Injection
 
-Every CodeCompass command **automatically builds the knowledge graph** before the AI starts. No manual steps. The AI begins every conversation already knowing your repo's full structure, languages, frameworks, entry points, and dependency tree.
+CodeCompass AI chat flows automatically prepare repository context before response generation. For local-only commands (like `graph` or `export`), context is built as needed by that command.
+
+### Performance Notes
+
+- Indexing time depends on repository size, hardware, and filesystem speed.
+- On this repository, indexing is typically near-instant; larger monorepos will take longer.
+- For reproducible demos, prefer deterministic outputs like `codecompass graph -o deps.md` and `codecompass export -f json`.
 
 ---
 
@@ -81,14 +87,14 @@ Get AI-generated architecture analysis including:
 ### 👥 Contributor Intelligence
 Answer "Who should I ask about X?" by analyzing:
 - Per-file and per-directory contribution stats
-- Active vs. dormant areas (bus factor detection)
-- Expertise mapping based on commit history
+- Commit recency and ownership signals from git history
+- Expertise hints based on touched files and commit history
 
 ### 📋 Documentation Freshness Audit
 Detect stale documentation:
 - README references to files that no longer exist
 - Install instructions that don't match current dependencies
-- Docstring drift from actual function signatures
+- Mismatches between documented commands and repository setup
 
 ### 📊 Export
 Generate portable onboarding documents or structured data:
@@ -107,11 +113,12 @@ AI-powered explanation of recent code changes:
 - Explains WHAT changed, WHY, and the impact
 - Perfect for catching up after time away from a project
 
-### �🖥️ Rich Terminal UI
+### 🖥️ Rich Terminal UI
 A beautiful Textual-based TUI with:
 - Split-pane layout (sidebar summary + chat)
 - Real-time streaming responses
-- Thinking indicators during agent processing- **Settings panel** (Ctrl+S) — edit model, log level, tree depth inline
+- Thinking indicators during agent processing
+- **Settings panel** (Ctrl+S) — edit model, log level, tree depth inline
 
 ### ⚙️ Configuration Management
 Generate and edit `.codecompass.toml` config files from the CLI or TUI:
@@ -150,7 +157,7 @@ The interactive setup script will:
 
 - **Python 3.10+**
 - **Git** (for git history features)
-- A **GitHub account with Copilot access** (Copilot Free tier works)
+- A **GitHub account with Copilot access**
 
 ### Installation
 
@@ -171,15 +178,17 @@ python -c "import copilot; import pathlib; print(pathlib.Path(copilot.__file__).
 Or simply run `codecompass onboard` — if you're not authenticated, it will prompt you.
 
 > **Note**: Personal Access Tokens (PATs) are **not supported** by the Copilot API. You must use the OAuth device-flow login.
+>
+> Optional GitHub API features (PR/issue lookup) can still use `GITHUB_TOKEN` when configured.
 
 ### Usage
 
 ```bash
 # Scan a repo and see the onboarding summary
-codecompass onboard --repo /path/to/repo
+codecompass --repo /path/to/repo onboard
 
 # Onboard + start an interactive chat
-codecompass onboard --repo /path/to/repo --interactive
+codecompass onboard --interactive
 
 # Ask a question
 codecompass ask "How does authentication work in this project?"
@@ -217,6 +226,12 @@ codecompass diff-explain -n 10
 # Start interactive chat mode
 codecompass chat
 
+# Print a deterministic judge demo flow
+codecompass demo
+
+# See which commands may consume Copilot premium requests
+codecompass premium-usage
+
 # Launch the full TUI
 codecompass tui
 ```
@@ -245,7 +260,7 @@ codecompass tui
 ┌──────────────────────────────────────────────────┐
 │         Copilot CLI (server mode)                 │
 │  ┌──────────┐ ┌───────────┐ ┌──────────────────┐ │
-│  │ Built-in │ │ 11 Custom │ │ Knowledge Graph  │ │
+│  │ Built-in │ │ 12 Custom │ │ Knowledge Graph  │ │
 │  │ Tools    │ │ Tools     │ │ + Git Analysis   │ │
 │  └──────────┘ └───────────┘ └──────────────────┘ │
 └──────────────────────────────────────────────────┘
@@ -256,7 +271,7 @@ codecompass tui
 CodeCompass extends the Copilot agent with **12 custom tools**:
 
 | Tool | Purpose |
-|------|---------||
+|------|---------|
 | `search_git_history` | Search commit messages for a topic or keyword |
 | `get_commit_files` | List all files changed in a specific commit |
 | `get_file_contributors` | Who worked on a specific file |
@@ -319,7 +334,7 @@ codecompass/
 └── src/codecompass/
     ├── __init__.py                # Package metadata
     ├── __main__.py                # python -m codecompass
-    ├── cli.py                     # Click CLI (12 commands)
+    ├── cli.py                     # Click CLI (14 commands)
     ├── models.py                  # Pydantic data models
     ├── agent/
     │   ├── agent.py               # Core orchestration logic
@@ -353,12 +368,20 @@ model = "gpt-4.1"
 tree_depth = 4
 max_file_size_kb = 512
 log_level = "WARNING"
+premium_usage_warnings = true
 ```
 
 Environment variables:
 - `CODECOMPASS_MODEL` — LLM model to use (default: `gpt-4.1`)
 - `CODECOMPASS_LOG_LEVEL` — Logging verbosity
+- `CODECOMPASS_PREMIUM_USAGE_WARNINGS` — Show/hide premium usage warnings (`true`/`false`)
 - `GITHUB_TOKEN` — GitHub token for API features (PR/issue search)
+
+To disable warnings from config:
+
+```bash
+codecompass config set premium_usage_warnings false
+```
 
 ---
 

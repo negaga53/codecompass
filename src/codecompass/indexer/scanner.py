@@ -73,7 +73,7 @@ _CONFIG_BASENAMES: set[str] = {
     "gemfile",
     "composer.json",
     "makefile",
-    "cmake" "lists.txt",
+    "cmakelists.txt",
     "dockerfile",
     "docker-compose.yml",
     "docker-compose.yaml",

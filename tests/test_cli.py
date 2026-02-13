@@ -25,6 +25,8 @@ class TestCLI:
         assert "CodeCompass" in result.output
         assert "onboard" in result.output
         assert "ask" in result.output
+        assert "demo" in result.output
+        assert "premium-usage" in result.output
         assert "tui" in result.output
 
     def test_onboard(self) -> None:
@@ -54,6 +56,21 @@ class TestCLI:
         assert result.exit_code == 0
         assert "markdown" in result.output
         assert "json" in result.output
+
+    def test_demo_script(self) -> None:
+        result = runner.invoke(main, ["--repo", ".", "demo"])
+        assert result.exit_code == 0
+        assert "Judge Demo Script" in result.output
+        assert "diff-explain" in result.output
+        assert "pytest -q" in result.output
+
+    def test_premium_usage_command(self) -> None:
+        result = runner.invoke(main, ["premium-usage"])
+        assert result.exit_code == 0
+        assert "Premium" in result.output
+        assert "ask" in result.output
+        assert "diff-explain" in result.output
+        assert "onboard --interactive" in result.output
 
 
 class TestConfigCommands:
@@ -106,13 +123,22 @@ class TestConfigCommands:
             content = cfg.read_text()
             assert "tree_depth = 8" in content
 
+    def test_config_set_bool(self) -> None:
+        """Test that boolean keys are coerced to booleans."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = runner.invoke(main, ["--repo", tmpdir, "config", "set", "premium_usage_warnings", "false"])
+            assert result.exit_code == 0
+            cfg = Path(tmpdir) / ".codecompass.toml"
+            content = cfg.read_text().lower()
+            assert "premium_usage_warnings = false" in content
+
     def test_config_init_creates_file(self) -> None:
         """Test config init with default values (piped via input)."""
         with tempfile.TemporaryDirectory() as tmpdir:
             result = runner.invoke(
                 main,
                 ["--repo", tmpdir, "config", "init"],
-                input="gpt-4.1\nWARNING\n4\n512\n",
+                input="gpt-4.1\nWARNING\n4\n512\ny\n",
             )
             assert result.exit_code == 0
             cfg = Path(tmpdir) / ".codecompass.toml"
@@ -120,6 +146,7 @@ class TestConfigCommands:
             content = cfg.read_text()
             assert "gpt-4.1" in content
             assert "WARNING" in content
+            assert "premium_usage_warnings = true" in content.lower()
 
     def test_config_init_no_overwrite(self) -> None:
         """Test that config init refuses to overwrite without --force."""
@@ -140,9 +167,10 @@ class TestConfigCommands:
             result = runner.invoke(
                 main,
                 ["--repo", tmpdir, "config", "init", "--force"],
-                input="new-model\nDEBUG\n6\n1024\n",
+                input="new-model\nDEBUG\n6\n1024\nn\n",
             )
             assert result.exit_code == 0
             content = cfg.read_text()
             assert "new-model" in content
             assert "old" not in content
+            assert "premium_usage_warnings = false" in content.lower()

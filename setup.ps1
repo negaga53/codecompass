@@ -187,19 +187,19 @@ Write-Host "  # Activate the virtual environment" -ForegroundColor Cyan
 Write-Host "  .\.venv\Scripts\Activate.ps1"
 Write-Host ""
 Write-Host "  # Scan and onboard a repository" -ForegroundColor Cyan
-Write-Host "  codecompass onboard --repo C:\path\to\repo"
+Write-Host "  codecompass --repo C:\path\to\repo onboard"
 Write-Host ""
 Write-Host "  # Start interactive chat" -ForegroundColor Cyan
-Write-Host "  codecompass chat --repo C:\path\to\repo"
+Write-Host "  codecompass --repo C:\path\to\repo chat"
 Write-Host ""
 Write-Host "  # Launch the full TUI" -ForegroundColor Cyan
-Write-Host "  codecompass tui --repo C:\path\to\repo"
+Write-Host "  codecompass --repo C:\path\to\repo tui"
 Write-Host ""
 Write-Host "  # Ask a question about any codebase" -ForegroundColor Cyan
-Write-Host "  codecompass ask `"How does authentication work?`" --repo C:\path\to\repo"
+Write-Host "  codecompass --repo C:\path\to\repo ask `"How does authentication work?`""
 Write-Host ""
 Write-Host "  # Export onboarding docs" -ForegroundColor Cyan
-Write-Host "  codecompass export --format markdown -o onboarding.md --repo C:\path\to\repo"
+Write-Host "  codecompass --repo C:\path\to\repo export --format markdown -o onboarding.md"
 Write-Host ""
 Write-Host "  Run " -NoNewline
 Write-Host "codecompass --help" -ForegroundColor White -NoNewline

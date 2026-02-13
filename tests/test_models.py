@@ -1,5 +1,7 @@
 """Tests for models and config."""
 
+from pathlib import Path
+
 from codecompass.models import (
     Language,
     RepoSummary,
@@ -74,3 +76,30 @@ class TestSettings:
     def test_repo_path_default(self) -> None:
         settings = Settings.load()
         assert settings.repo_path == "."
+        assert settings.premium_usage_warnings is True
+
+    def test_load_prefers_repo_config_over_cwd(self, tmp_path: Path) -> None:
+        cwd_cfg = tmp_path / ".codecompass.toml"
+        cwd_cfg.write_text('[codecompass]\nmodel = "cwd-model"\n', encoding="utf-8")
+
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+        repo_cfg = repo_dir / ".codecompass.toml"
+        repo_cfg.write_text('[codecompass]\nmodel = "repo-model"\n', encoding="utf-8")
+
+        settings = Settings.load({"repo_path": str(repo_dir)}, base_path=repo_dir)
+        assert settings.model == "repo-model"
+
+    def test_load_uses_base_path_when_no_overrides(self, tmp_path: Path) -> None:
+        repo_cfg = tmp_path / ".codecompass.toml"
+        repo_cfg.write_text('[codecompass]\nlog_level = "DEBUG"\n', encoding="utf-8")
+
+        settings = Settings.load(base_path=tmp_path)
+        assert settings.log_level == "DEBUG"
+
+    def test_load_reads_premium_warning_toggle(self, tmp_path: Path) -> None:
+        cfg = tmp_path / ".codecompass.toml"
+        cfg.write_text('[codecompass]\npremium_usage_warnings = false\n', encoding="utf-8")
+
+        settings = Settings.load(base_path=tmp_path)
+        assert settings.premium_usage_warnings is False

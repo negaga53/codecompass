@@ -31,6 +31,16 @@ from codecompass.utils.config import Settings
 console = Console()
 
 
+_FALLBACK_MODELS: list[tuple[str, str]] = [
+    ("claude-sonnet-4", "yes"),
+    ("claude-haiku-4.5", "yes"),
+    ("gpt-4.1", "yes"),
+    ("gpt-5.1", "yes"),
+    ("gpt-5.2-codex", "yes"),
+    ("o4-mini", "yes"),
+]
+
+
 _PREMIUM_USAGE: dict[str, tuple[str, str]] = {
     "ask": ("yes", "Sends prompt to Copilot model via SDK session"),
     "why": ("yes", "Sends prompt to Copilot model via SDK session"),
@@ -57,6 +67,70 @@ def _configure_logging(level: str) -> None:
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         datefmt="%H:%M:%S",
     )
+
+
+def _normalize_premium_flag(raw: object) -> str:
+    if raw is True:
+        return "yes"
+    if raw is False:
+        return "no"
+    if isinstance(raw, str):
+        val = raw.strip().lower()
+        if val in {"yes", "true", "premium", "paid"}:
+            return "yes"
+        if val in {"no", "false", "free"}:
+            return "no"
+    return "unknown"
+
+
+def _available_models_with_premium() -> list[tuple[str, str]]:
+    """Best-effort model list from Copilot SDK with premium metadata.
+
+    Returns fallback data if SDK model listing is unavailable.
+    """
+
+    async def _fetch() -> list[tuple[str, str]]:
+        from copilot import CopilotClient  # type: ignore[import-untyped]
+
+        client = CopilotClient()
+        await client.start()
+        try:
+            list_fn = getattr(client, "list_models", None) or getattr(client, "listModels", None)
+            if not callable(list_fn):
+                return _FALLBACK_MODELS
+
+            raw_models = await list_fn()
+        finally:
+            await client.stop()
+
+        parsed: list[tuple[str, str]] = []
+        for item in raw_models or []:
+            if isinstance(item, dict):
+                model_id = item.get("id") or item.get("model") or item.get("name")
+                premium_raw = (
+                    item.get("premium")
+                    or item.get("is_premium")
+                    or item.get("uses_premium_requests")
+                    or item.get("premium_usage")
+                )
+            else:
+                model_id = getattr(item, "id", None) or getattr(item, "model", None) or getattr(item, "name", None)
+                premium_raw = (
+                    getattr(item, "premium", None)
+                    or getattr(item, "is_premium", None)
+                    or getattr(item, "uses_premium_requests", None)
+                    or getattr(item, "premium_usage", None)
+                )
+
+            if model_id:
+                parsed.append((str(model_id), _normalize_premium_flag(premium_raw)))
+
+        return parsed or _FALLBACK_MODELS
+
+    try:
+        return asyncio.run(_fetch())
+    except Exception:
+        return _FALLBACK_MODELS
 
 
 def _init_git(repo_path: Path):
@@ -158,11 +232,9 @@ async def _interactive_session(
 
             # Slash commands
             if stripped.lower() == "/models":
-                console.print(
-                    "\n[bold]Available models:[/] claude-sonnet-4, "
-                    "claude-haiku-4.5, gpt-4.1, gpt-5.1, "
-                    "gpt-5.2-codex, o4-mini"
-                )
+                models = _available_models_with_premium()
+                model_text = ", ".join(f"{name} (premium: {premium})" for name, premium in models)
+                console.print(f"\n[bold]Available models:[/] {model_text}")
                 console.print(f"[dim]Current: {current_model}[/]\n")
                 continue
 
@@ -826,9 +898,9 @@ def config_show(ctx: click.Context) -> None:
 
 @config.command(name="set")
 @click.argument("key")
-@click.argument("value")
+@click.argument("value", required=False)
 @click.pass_context
-def config_set(ctx: click.Context, key: str, value: str) -> None:
+def config_set(ctx: click.Context, key: str, value: str | None) -> None:
     """Set a single configuration value.
 
     Updates (or creates) .codecompass.toml with the given key-value pair.
@@ -840,13 +912,42 @@ def config_set(ctx: click.Context, key: str, value: str) -> None:
     """
     from codecompass.utils.config import update_config_key, config_path
 
-    valid_keys = {"model", "log_level", "tree_depth", "max_file_size_kb", "premium_usage_warnings"}
+    valid_keys = {"model", "log_level", "tree_depth", "max_file_size_kb", "premium_usage_warnings", "github_token"}
     if key not in valid_keys:
         console.print(
             f"[red]Invalid key:[/] {key}\n"
             f"Valid keys: {', '.join(sorted(valid_keys))}"
         )
         return
+
+    settings: Settings = ctx.obj["settings"]
+
+    if key == "model" and (value is None or not str(value).strip()):
+        models = _available_models_with_premium()
+        model_choices = [name for name, _ in models]
+
+        table = Table(title="Available Copilot Models")
+        table.add_column("Model", style="bold cyan")
+        table.add_column("Premium Requests", style="dim")
+        for name, premium in models:
+            table.add_row(name, premium)
+        console.print()
+        console.print(table)
+        console.print()
+
+        default_model = settings.model if settings.model in model_choices else model_choices[0]
+        value = click.prompt(
+            "Select model",
+            type=click.Choice(model_choices, case_sensitive=False),
+            default=default_model,
+            show_choices=False,
+        )
+
+    if value is None or not str(value).strip():
+        if key == "github_token":
+            value = click.prompt("GitHub token", hide_input=True)
+        else:
+            value = click.prompt(f"Value for {key}")
 
     repo_path: Path = ctx.obj["repo_path"]
     target = config_path(repo_path)

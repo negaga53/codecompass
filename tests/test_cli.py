@@ -114,6 +114,14 @@ class TestConfigCommands:
         assert result.exit_code == 0
         assert "Invalid key" in result.output
 
+    def test_config_set_github_token(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = runner.invoke(main, ["--repo", tmpdir, "config", "set", "github_token", "ghp_testtoken"])
+            assert result.exit_code == 0
+            cfg = Path(tmpdir) / ".codecompass.toml"
+            content = cfg.read_text()
+            assert 'github_token = "ghp_testtoken"' in content
+
     def test_config_set_numeric(self) -> None:
         """Test that numeric keys are coerced to integers."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -131,6 +139,23 @@ class TestConfigCommands:
             cfg = Path(tmpdir) / ".codecompass.toml"
             content = cfg.read_text().lower()
             assert "premium_usage_warnings = false" in content
+
+    def test_config_set_model_without_value_uses_selector(self, monkeypatch) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            monkeypatch.setattr(
+                "codecompass.cli._available_models_with_premium",
+                lambda: [("gpt-4.1", "yes"), ("gpt-5.1", "yes")],
+            )
+
+            result = runner.invoke(
+                main,
+                ["--repo", tmpdir, "config", "set", "model"],
+                input="gpt-5.1\n",
+            )
+            assert result.exit_code == 0
+            cfg = Path(tmpdir) / ".codecompass.toml"
+            content = cfg.read_text()
+            assert 'model = "gpt-5.1"' in content
 
     def test_config_init_creates_file(self) -> None:
         """Test config init with default values (piped via input)."""

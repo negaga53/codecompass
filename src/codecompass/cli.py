@@ -703,9 +703,26 @@ def architecture(ctx: click.Context, skip_confirm: bool) -> None:
 
 
 @main.command()
+@click.option(
+    "--output", "-o", "output_path",
+    default=None,
+    help="Export contributor data to a file.",
+)
+@click.option(
+    "--format", "-f", "fmt",
+    type=click.Choice(["table", "json", "yaml", "csv"]),
+    default="table",
+    help="Output format (default: table).",
+)
 @click.pass_context
-def contributors(ctx: click.Context) -> None:
-    """Show contributor intelligence for the repository."""
+def contributors(ctx: click.Context, output_path: str | None, fmt: str) -> None:
+    """Show contributor intelligence for the repository.
+
+    Outputs a table by default. Use --format to choose json, yaml, or
+    csv, and --output to save to a file.
+    """
+    import json as json_mod
+
     from codecompass.github.git import GitOps, GitOpsError
     from codecompass.utils.formatting import print_markdown
 
@@ -722,6 +739,46 @@ def contributors(ctx: click.Context) -> None:
         console.print("[yellow]No contributors found.[/]")
         return
 
+    # ── serialise ──────────────────────────────────────────────────
+    if fmt == "json":
+        output = json_mod.dumps(contributor_list, indent=2)
+    elif fmt == "yaml":
+        lines_out: list[str] = []
+        for c in contributor_list:
+            lines_out.append(f"- name: {c['name']}")
+            lines_out.append(f"  commits: {c['commits']}")
+            lines_out.append(f"  email: \"{c.get('email', '')}\"")
+        output = "\n".join(lines_out)
+    elif fmt == "csv":
+        csv_lines = ["name,commits,email"]
+        for c in contributor_list:
+            name = c["name"].replace('"', '""')
+            email = c.get("email", "").replace('"', '""')
+            csv_lines.append(f'"{name}",{c["commits"]},"{email}"')
+        output = "\n".join(csv_lines)
+    else:
+        # Rich table to terminal
+        output = None
+
+    if output_path:
+        if output is None:
+            # Default to csv when saving to file without explicit format
+            csv_lines = ["name,commits,email"]
+            for c in contributor_list:
+                name = c["name"].replace('"', '""')
+                email = c.get("email", "").replace('"', '""')
+                csv_lines.append(f'"{name}",{c["commits"]},"{email}"')
+            output = "\n".join(csv_lines)
+        Path(output_path).write_text(output, encoding="utf-8")
+        console.print(f"[green]Exported to {output_path}[/]")
+        return
+
+    if output is not None:
+        # Non-table format to stdout
+        console.print(output)
+        return
+
+    # Default: Rich table
     lines = ["# Contributors\n", "| Name | Commits | Email |", "|------|---------|-------|"]
     for c in contributor_list:
         lines.append(f"| {c['name']} | {c['commits']} | {c.get('email', '')} |")

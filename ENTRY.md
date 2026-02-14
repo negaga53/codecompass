@@ -1,5 +1,5 @@
 ---
-title: 🧭 CodeCompass — AI-Powered Codebase Intelligence Built with the Copilot SDK
+title: 🧭 CodeCompass — AI-Powered Codebase Intelligence Powered by Github Copilot SDK
 published: true
 tags: devchallenge, githubchallenge, cli, githubcopilot
 ---
@@ -8,7 +8,7 @@ tags: devchallenge, githubchallenge, cli, githubcopilot
 
 ## What I Built
 
-**CodeCompass** is an AI-powered codebase intelligence and onboarding assistant that helps developers understand, navigate, and contribute to unfamiliar codebases — instantly.
+**CodeCompass** is an AI-powered codebase intelligence and onboarding assistant that helps developers understand, navigate, and contribute to unfamiliar codebases — instantly. Powered by Github Copilot SDK.
 
 Point it at any repository, and it:
 - **Scans and indexes** the codebase (languages, frameworks, entry points, structure)

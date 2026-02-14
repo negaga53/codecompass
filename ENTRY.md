@@ -16,11 +16,11 @@ Point it at any repository, and it:
 - **Answers questions** grounded in actual code, git history, and contributor data
 - **Generates artifacts** like dependency diagrams, onboarding docs, and change summaries
 
-I built this because every time I join a new project or revisit an old one, I spend hours reading READMEs, tracing imports, and asking "who owns this file?" CodeCompass compresses that entire onboarding process into seconds.
+I built this because every time I join a new project or revisit an old one, I spend a lot of time reading READMEs, tracing imports, etc... CodeCompass compresses that entire onboarding process into seconds.
 
 ### Why Not Just Use Copilot CLI / Chat Directly?
 
-Running `copilot` or Copilot Chat starts from scratch every time — reading files one by one, with no access to git history, PRs, or contributor data. You'd need to manually prompt-engineer context and invoke tools yourself to get useful results.
+Running `copilot` or Copilot Chat starts from scratch every time — reading files one by one, with no/limited access to git history, PRs, or contributor data. You'd need to manually prompt-engineer context and invoke tools yourself to get useful results.
 
 CodeCompass is **purpose-built for repository analysis**:
 
@@ -31,7 +31,7 @@ CodeCompass is **purpose-built for repository analysis**:
 
 ### CLI-First = Automatable
 
-Because CodeCompass is a CLI tool with `--yes` / `-y` flags on every AI command, it fits naturally into CI/CD pipelines:
+Because CodeCompass is also a CLI tool, it fits naturally into CI/CD pipelines:
 
 ```bash
 # Generate onboarding docs on every release
@@ -50,7 +50,7 @@ codecompass diff-explain --commits 5 --yes
 codecompass onboard -o knowledge.json -f json
 ```
 
-No interactive prompts, no manual intervention — just structured output from AI-powered analysis.
+Ir supports no interactive prompts, no manual intervention — just structured output from AI-powered analysis.
 
 ### Key Features
 

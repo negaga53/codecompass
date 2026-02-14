@@ -371,6 +371,18 @@ log_level = "WARNING"
 premium_usage_warnings = true
 ```
 
+CodeCompass also supports a global user config file:
+- Linux: `~/.config/codecompass/config.toml` (or `$XDG_CONFIG_HOME/codecompass/config.toml`)
+- macOS: `~/Library/Application Support/codecompass/config.toml`
+- Windows: `%APPDATA%\\codecompass\\config.toml`
+
+Resolution order: CLI flags > environment variables > repo `.codecompass.toml` > global config > defaults.
+
+Useful commands:
+- `codecompass config path` — repo config path
+- `codecompass config path --global` — global config path
+- `codecompass config set --global model gpt-4.1` — set global default model
+
 Environment variables:
 - `CODECOMPASS_MODEL` — LLM model to use (default: `gpt-4.1`)
 - `CODECOMPASS_LOG_LEVEL` — Logging verbosity

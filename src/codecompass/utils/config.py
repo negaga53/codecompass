@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +12,7 @@ from pydantic import BaseModel, Field
 
 _DEFAULT_MODEL = "gpt-4.1"
 _CONFIG_FILENAME = ".codecompass.toml"
+_GLOBAL_CONFIG_FILENAME = "config.toml"
 
 
 class Settings(BaseModel):
@@ -51,12 +53,14 @@ class Settings(BaseModel):
         overrides: dict[str, Any] | None = None,
         *,
         base_path: str | Path | None = None,
+        global_path: str | Path | None = None,
     ) -> "Settings":
         """Build a ``Settings`` instance honouring env vars and config files.
 
         Args:
             overrides: Explicit key-value overrides (e.g. from CLI flags).
             base_path: Repository path to use when resolving ``.codecompass.toml``.
+            global_path: Explicit global config file path (for tests/overrides).
 
         Returns:
             A fully resolved ``Settings`` object.
@@ -67,12 +71,17 @@ class Settings(BaseModel):
         if overrides and overrides.get("repo_path"):
             effective_base = str(overrides["repo_path"])
 
-        # 1 — Try reading a local config file
+        # 1 — Global config (lowest precedence among config files)
+        global_cfg = Path(global_path).resolve() if global_path else global_config_path()
+        if global_cfg.is_file():
+            values.update(_parse_toml(global_cfg))
+
+        # 2 — Repo/local config overrides global
         cfg_path = config_path(effective_base)
         if cfg_path.is_file():
             values.update(_parse_toml(cfg_path))
 
-        # 2 — Environment variables (prefixed CODECOMPASS_)
+        # 3 — Environment variables (prefixed CODECOMPASS_)
         env_map: dict[str, str] = {
             "GITHUB_TOKEN": "github_token",
             "CODECOMPASS_MODEL": "model",
@@ -87,7 +96,7 @@ class Settings(BaseModel):
             if env_val is not None:
                 values[field_name] = env_val
 
-        # 3 — Explicit overrides win
+        # 4 — Explicit overrides win
         if overrides:
             values.update(overrides)
 
@@ -98,6 +107,25 @@ def config_path(repo_path: str | Path | None = None) -> Path:
     """Return the path to the config file for the given repo (or cwd)."""
     base = Path(repo_path).resolve() if repo_path else Path.cwd()
     return base / _CONFIG_FILENAME
+
+
+def global_config_path() -> Path:
+    """Return the OS-appropriate global config path for CodeCompass.
+
+    Linux: ``$XDG_CONFIG_HOME/codecompass/config.toml`` or ``~/.config/...``
+    macOS: ``~/Library/Application Support/codecompass/config.toml``
+    Windows: ``%APPDATA%\\codecompass\\config.toml``
+    """
+    if os.name == "nt":
+        appdata = os.environ.get("APPDATA")
+        base = Path(appdata).resolve() if appdata else (Path.home() / "AppData" / "Roaming")
+    elif sys.platform == "darwin":
+        base = Path.home() / "Library" / "Application Support"
+    else:
+        xdg = os.environ.get("XDG_CONFIG_HOME")
+        base = Path(xdg).resolve() if xdg else (Path.home() / ".config")
+
+    return base / "codecompass" / _GLOBAL_CONFIG_FILENAME
 
 
 def write_config(
@@ -117,6 +145,7 @@ def write_config(
         The path that was written.
     """
     target = Path(path) if path else config_path()
+    target.parent.mkdir(parents=True, exist_ok=True)
 
     all_fields = {
         "model": settings.model,
@@ -161,6 +190,7 @@ def update_config_key(key: str, value: str, path: str | Path | None = None) -> P
         The path that was written.
     """
     target = Path(path) if path else config_path()
+    target.parent.mkdir(parents=True, exist_ok=True)
 
     existing: dict[str, Any] = {}
     if target.is_file():

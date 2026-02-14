@@ -89,6 +89,11 @@ class TestConfigCommands:
         assert result.exit_code == 0
         assert ".codecompass.toml" in result.output
 
+    def test_config_path_global(self) -> None:
+        result = runner.invoke(main, ["config", "path", "--global"])
+        assert result.exit_code == 0
+        assert "config.toml" in result.output
+
     def test_config_show(self) -> None:
         result = runner.invoke(main, ["config", "show"])
         assert result.exit_code == 0
@@ -121,6 +126,22 @@ class TestConfigCommands:
             cfg = Path(tmpdir) / ".codecompass.toml"
             content = cfg.read_text()
             assert 'github_token = "ghp_testtoken"' in content
+
+    def test_config_set_global_writes_global_file(self, tmp_path, monkeypatch) -> None:
+        if os.name == "nt":
+            monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
+            global_cfg = tmp_path / "appdata" / "codecompass" / "config.toml"
+        else:
+            monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+            global_cfg = tmp_path / "xdg" / "codecompass" / "config.toml"
+
+        result = runner.invoke(
+            main,
+            ["config", "set", "--global", "model", "gpt-4.1"],
+        )
+        assert result.exit_code == 0
+        assert global_cfg.is_file()
+        assert 'model = "gpt-4.1"' in global_cfg.read_text()
 
     def test_config_set_numeric(self) -> None:
         """Test that numeric keys are coerced to integers."""

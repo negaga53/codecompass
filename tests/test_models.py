@@ -1,5 +1,6 @@
 """Tests for models and config."""
 
+import os
 from pathlib import Path
 
 from codecompass.models import (
@@ -10,7 +11,7 @@ from codecompass.models import (
     StalenessFinding,
     Severity,
 )
-from codecompass.utils.config import Settings
+from codecompass.utils.config import Settings, global_config_path
 
 
 class TestModels:
@@ -103,3 +104,41 @@ class TestSettings:
 
         settings = Settings.load(base_path=tmp_path)
         assert settings.premium_usage_warnings is False
+
+    def test_repo_config_overrides_global_config(self, tmp_path: Path) -> None:
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+        (repo_dir / ".codecompass.toml").write_text('[codecompass]\nmodel = "repo-model"\n', encoding="utf-8")
+
+        global_cfg = tmp_path / "global-config.toml"
+        global_cfg.write_text('[codecompass]\nmodel = "global-model"\n', encoding="utf-8")
+
+        settings = Settings.load(
+            {"repo_path": str(repo_dir)},
+            base_path=repo_dir,
+            global_path=global_cfg,
+        )
+        assert settings.model == "repo-model"
+
+    def test_global_config_used_when_repo_config_missing(self, tmp_path: Path) -> None:
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+        global_cfg = tmp_path / "global-config.toml"
+        global_cfg.write_text('[codecompass]\nlog_level = "ERROR"\n', encoding="utf-8")
+
+        settings = Settings.load(
+            {"repo_path": str(repo_dir)},
+            base_path=repo_dir,
+            global_path=global_cfg,
+        )
+        assert settings.log_level == "ERROR"
+
+    def test_global_config_path_respects_xdg(self, tmp_path: Path, monkeypatch) -> None:
+        if os.name == "nt":
+            monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
+        else:
+            monkeypatch.delenv("APPDATA", raising=False)
+            monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+        path = global_config_path()
+        assert path.name == "config.toml"
+        assert path.parent.name == "codecompass"

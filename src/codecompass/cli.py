@@ -143,6 +143,25 @@ def _init_git(repo_path: Path):
         return None
 
 
+def _init_github_client(git_ops, settings: Settings):
+    """Create a GitHubClient from the repo remote URL, if possible."""
+    if git_ops is None:
+        return None
+    try:
+        import re
+        from codecompass.github.client import GitHubClient
+
+        url = git_ops.remote_url()
+        if not url:
+            return None
+        m = re.search(r"github\.com[:/]([^/]+)/([^/.]+)", url)
+        if not m:
+            return None
+        return GitHubClient(m.group(1), m.group(2), token=settings.github_token)
+    except Exception:
+        return None
+
+
 async def _run_with_sdk(
     repo_path: Path,
     settings: Settings,
@@ -161,11 +180,14 @@ async def _run_with_sdk(
     except Exception:
         kg = None
 
+    gh_client = _init_github_client(git_ops, settings)
+
     async with CompassClient(
         repo_path,
         model=settings.model,
         git_ops=git_ops,
         knowledge_graph=kg,
+        github_client=gh_client,
     ) as client:
         await client.create_session(
             system_message=system_message,
@@ -198,11 +220,14 @@ async def _interactive_session(
     except Exception:
         kg = None
 
+    gh_client = _init_github_client(git_ops, settings)
+
     async with CompassClient(
         repo_path,
         model=settings.model,
         git_ops=git_ops,
         knowledge_graph=kg,
+        github_client=gh_client,
     ) as client:
         await client.create_session(
             system_message=system_message,
@@ -788,17 +813,18 @@ def config(ctx: click.Context) -> None:
 
 @config.command(name="init")
 @click.option("--force", "-f", is_flag=True, help="Overwrite existing config file.")
+@click.option("--global", "global_scope", is_flag=True, help="Write to global user config instead of repo config.")
 @click.pass_context
-def config_init(ctx: click.Context, force: bool) -> None:
+def config_init(ctx: click.Context, force: bool, global_scope: bool) -> None:
     """Generate a .codecompass.toml configuration file with sensible defaults.
 
     Interactively prompts for key settings (model, log level, etc.)
     and writes them to .codecompass.toml in the current directory.
     """
-    from codecompass.utils.config import config_path, write_config
+    from codecompass.utils.config import config_path, global_config_path, write_config
 
     repo_path: Path = ctx.obj["repo_path"]
-    target = config_path(repo_path)
+    target = global_config_path() if global_scope else config_path(repo_path)
 
     if target.is_file() and not force:
         console.print(
@@ -833,17 +859,19 @@ def config_init(ctx: click.Context, force: bool) -> None:
 
 
 @config.command(name="show")
+@click.option("--global", "global_scope", is_flag=True, help="Show only the global user config file values.")
 @click.pass_context
-def config_show(ctx: click.Context) -> None:
+def config_show(ctx: click.Context, global_scope: bool) -> None:
     """Display the current resolved configuration.
 
     Shows all settings with their values and sources (default, env, file, CLI).
     """
-    from codecompass.utils.config import config_path
+    from codecompass.utils.config import config_path, global_config_path
 
     settings: Settings = ctx.obj["settings"]
     repo_path: Path = ctx.obj["repo_path"]
-    cfg_file = config_path(repo_path)
+    repo_cfg_file = config_path(repo_path)
+    global_cfg_file = global_config_path()
 
     from rich.table import Table
 
@@ -853,10 +881,14 @@ def config_show(ctx: click.Context) -> None:
     table.add_column("Source", style="dim")
 
     # Determine sources
-    file_vals: dict = {}
-    if cfg_file.is_file():
+    repo_vals: dict = {}
+    global_vals: dict = {}
+    if repo_cfg_file.is_file():
         from codecompass.utils.config import _parse_toml
-        file_vals = _parse_toml(cfg_file)
+        repo_vals = _parse_toml(repo_cfg_file)
+    if global_cfg_file.is_file():
+        from codecompass.utils.config import _parse_toml
+        global_vals = _parse_toml(global_cfg_file)
 
     import os
 
@@ -870,14 +902,26 @@ def config_show(ctx: click.Context) -> None:
     }
 
     defaults = Settings()
+
+    display_settings = settings
+    if global_scope:
+        global_only_vals = dict(global_vals)
+        if "repo_path" not in global_only_vals:
+            global_only_vals["repo_path"] = settings.repo_path
+        display_settings = Settings(**global_only_vals)
+
     for field_name in ["model", "log_level", "tree_depth", "max_file_size_kb", "premium_usage_warnings", "repo_path", "github_token"]:
-        val = getattr(settings, field_name)
+        val = getattr(display_settings, field_name)
         # Determine source
         env_key = env_map.get(field_name)
-        if env_key and os.environ.get(env_key):
+        if not global_scope and env_key and os.environ.get(env_key):
             source = f"env ({env_key})"
-        elif field_name in file_vals:
-            source = f"file ({cfg_file.name})"
+        elif global_scope and field_name in global_vals:
+            source = f"file ({global_cfg_file.name})"
+        elif not global_scope and field_name in repo_vals:
+            source = f"file ({repo_cfg_file.name})"
+        elif not global_scope and field_name in global_vals:
+            source = f"file ({global_cfg_file.name})"
         elif val == getattr(defaults, field_name):
             source = "default"
         else:
@@ -892,15 +936,20 @@ def config_show(ctx: click.Context) -> None:
 
     console.print()
     console.print(table)
-    console.print(f"\n[dim]Config file: {cfg_file}{'  ✓ exists' if cfg_file.is_file() else '  (not found)'}[/]")
+    if global_scope:
+        console.print(f"\n[dim]Global config file: {global_cfg_file}{'  ✓ exists' if global_cfg_file.is_file() else '  (not found)'}[/]")
+    else:
+        console.print(f"\n[dim]Repo config file: {repo_cfg_file}{'  ✓ exists' if repo_cfg_file.is_file() else '  (not found)'}[/]")
+        console.print(f"[dim]Global config file: {global_cfg_file}{'  ✓ exists' if global_cfg_file.is_file() else '  (not found)'}[/]")
     console.print()
 
 
 @config.command(name="set")
+@click.option("--global", "global_scope", is_flag=True, help="Write key to global user config instead of repo config.")
 @click.argument("key")
 @click.argument("value", required=False)
 @click.pass_context
-def config_set(ctx: click.Context, key: str, value: str | None) -> None:
+def config_set(ctx: click.Context, global_scope: bool, key: str, value: str | None) -> None:
     """Set a single configuration value.
 
     Updates (or creates) .codecompass.toml with the given key-value pair.
@@ -910,7 +959,7 @@ def config_set(ctx: click.Context, key: str, value: str | None) -> None:
         codecompass config set log_level DEBUG
         codecompass config set tree_depth 6
     """
-    from codecompass.utils.config import update_config_key, config_path
+    from codecompass.utils.config import update_config_key, config_path, global_config_path
 
     valid_keys = {"model", "log_level", "tree_depth", "max_file_size_kb", "premium_usage_warnings", "github_token"}
     if key not in valid_keys:
@@ -950,19 +999,20 @@ def config_set(ctx: click.Context, key: str, value: str | None) -> None:
             value = click.prompt(f"Value for {key}")
 
     repo_path: Path = ctx.obj["repo_path"]
-    target = config_path(repo_path)
+    target = global_config_path() if global_scope else config_path(repo_path)
     update_config_key(key, value, target)
     console.print(f"[green]✓[/] Set [bold]{key}[/] = [cyan]{value}[/] in {target}")
 
 
 @config.command(name="path")
+@click.option("--global", "global_scope", is_flag=True, help="Show global user config path.")
 @click.pass_context
-def config_path_cmd(ctx: click.Context) -> None:
+def config_path_cmd(ctx: click.Context, global_scope: bool) -> None:
     """Print the path to the configuration file."""
-    from codecompass.utils.config import config_path
+    from codecompass.utils.config import config_path, global_config_path
 
     repo_path: Path = ctx.obj["repo_path"]
-    p = config_path(repo_path)
+    p = global_config_path() if global_scope else config_path(repo_path)
     exists = "✓ exists" if p.is_file() else "not found"
     click.echo(f"{p}  ({exists})")
 

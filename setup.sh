@@ -120,7 +120,7 @@ ok "codecompass $VERSION"
 # ── Step 5: Copilot Authentication ──────────────────────────────
 header "Step 5/5 — GitHub Copilot Authentication"
 
-# Find the bundled Copilot CLI
+# Prefer bundled Copilot CLI, then fall back to PATH
 COPILOT_BIN=$("$PYTHON_CMD" -c "
 import copilot, pathlib, sys
 bin_dir = pathlib.Path(copilot.__file__).parent / 'bin'
@@ -133,11 +133,17 @@ print('')
 " 2>/dev/null || echo "")
 
 if [[ -z "$COPILOT_BIN" || ! -x "$COPILOT_BIN" ]]; then
-    warn "Could not find bundled Copilot CLI binary."
+    if command -v copilot &>/dev/null; then
+        COPILOT_BIN="$(command -v copilot)"
+        ok "Found Copilot CLI in PATH: $COPILOT_BIN"
+    fi
+fi
+
+if [[ -z "$COPILOT_BIN" || ! -x "$COPILOT_BIN" ]]; then
+    warn "Could not find Copilot CLI binary (bundled or PATH)."
     warn "You may need to authenticate manually later."
 else
-    # Check if already authenticated
-    AUTH_STATUS=$("$COPILOT_BIN" --headless --no-auto-update version 2>/dev/null || echo "")
+    ok "Using Copilot CLI: $COPILOT_BIN"
 
     echo ""
     echo -e "  CodeCompass needs to authenticate with GitHub Copilot."

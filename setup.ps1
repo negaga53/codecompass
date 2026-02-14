@@ -111,7 +111,6 @@ try {
     Write-Warn 'Could not activate venv via script. Using direct paths instead.'
 }
 
-$PipExe = Join-Path $VenvDir 'Scripts\pip.exe'
 $PythonExe = Join-Path $VenvDir 'Scripts\python.exe'
 $CodeCompassExe = Join-Path $VenvDir 'Scripts\codecompass.exe'
 
@@ -119,11 +118,11 @@ $CodeCompassExe = Join-Path $VenvDir 'Scripts\codecompass.exe'
 Write-Header 'Step 4/5 - Installing CodeCompass'
 
 Write-Info 'Upgrading pip...'
-& $PipExe install --upgrade pip --quiet 2>$null
+& $PythonExe -m pip install --upgrade pip --quiet 2>$null
 Write-Ok 'pip upgraded'
 
 Write-Info 'Installing CodeCompass and dependencies...'
-& $PipExe install -e . --quiet 2>$null
+& $PythonExe -m pip install -e . --quiet 2>$null
 Write-Ok 'CodeCompass installed'
 
 try {

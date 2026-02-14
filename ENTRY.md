@@ -149,40 +149,15 @@ Building CodeCompass with the Copilot CLI was a revelatory experience. Here's wh
 
 ### What Copilot CLI Did Well
 
-- **Streaming responses** feel natural — the TUI and CLI both show text appearing word-by-word
-- **Multi-turn conversations** maintain context across questions in chat mode
-- **Custom tools** are the killer feature — the AI becomes genuinely useful when it can query structured data instead of guessing
-- **The permission model** (asking before running sensitive commands) builds trust
-- **`billing.multiplier`** on model objects lets me show users the actual premium cost before any AI call
+- **Planification** — It gave me a very detailed overview of the project.
+- **Interactivity** — I was asked a lot of questions during planning and implementation, which really nailed the final result and made me realize I had a few design issues during the planning phase (bonus: it helped me save a few premium requests).
+- **Custom tools** — This may be subjective, but I felt like the CLI supported more tools than the regular VS Code extension.
+- **Demos** — The CLI even helped me create the demos, which genuinely surprised me (GIF!).
 
 ### Challenges
 
-- **Context window limits** with large repos — I had to be strategic about what context to inject
-- **Balancing local vs. AI** — some features (onboard scan, graph, contributors) are intentionally local-only and deterministic, which makes them reliable, fast, and free
-
-### Architecture
-
-```
-┌──────────────────────────────────────────────────┐
-│            CodeCompass TUI (Textual)              │
-│  ┌─────────────┐  ┌───────────────────────────┐  │
-│  │  Repo        │  │  Copilot Agent Chat       │  │
-│  │  Summary     │  │  (streaming responses)    │  │
-│  │              │  │                           │  │
-│  │  Languages   │  │  > Why did we add Redis?  │  │
-│  │  Frameworks  │  │                           │  │
-│  │  Structure   │  │  Searching git history... │  │
-│  └─────────────┘  └───────────────────────────┘  │
-└──────────────────────────────────────────────────┘
-        ↕ GitHub Copilot SDK (JSON-RPC)
-┌──────────────────────────────────────────────────┐
-│         Copilot CLI (server mode)                 │
-│  ┌──────────┐ ┌───────────┐ ┌──────────────────┐ │
-│  │ Built-in │ │ 12 Custom │ │ Knowledge Graph  │ │
-│  │ Tools    │ │ Tools     │ │ + Git Analysis   │ │
-│  └──────────┘ └───────────┘ └──────────────────┘ │
-└──────────────────────────────────────────────────┘
-```
+- **Context window limits** — As the repository grew larger, I had to go through a few iterations to clean up unused code.
+- **Files navigation** — Not having a GUI made navigating files and reviewing changes a bit harder. I had to work somewhat blindly on many changes, whereas in VS Code I had much more control.
 
 ---
 
@@ -190,7 +165,7 @@ Building CodeCompass with the Copilot CLI was a revelatory experience. Here's wh
 
 CodeCompass turns any codebase into something you can *talk to*. It pre-indexes the code, builds a semantic knowledge graph, and gives the Copilot AI structured tools to answer deep questions — saving you the time and prompt engineering you'd need to get similar results from generic Copilot CLI or Chat.
 
-**Built entirely with the GitHub Copilot CLI and SDK** — from the initial scaffolding to the final polish.
+**Built entirely with GitHub Copilot CLI** — from the initial scaffolding to the final polish.
 
 - 📦 **GitHub Repository:** [https://github.com/negaga53/codecompass](https://github.com/negaga53/codecompass)
 - 📄 **License:** MIT

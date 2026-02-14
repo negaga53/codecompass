@@ -2,7 +2,7 @@
 
 ![CodeCompass banner](title.jpg)
 
-**AI-powered codebase intelligence and onboarding assistant** — built with the [GitHub Copilot SDK](https://github.com/github/copilot-sdk).
+**AI-powered codebase intelligence and onboarding assistant** — Powered by [GitHub Copilot SDK](https://github.com/github/copilot-sdk).
 
 > *This is a submission for the [GitHub Copilot CLI Challenge](https://dev.to/challenges/github-2026-01-21)*
 

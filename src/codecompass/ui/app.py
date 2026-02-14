@@ -71,6 +71,11 @@ class CodeCompassApp(App[None]):
         border: tall $primary;
     }
 
+    #input-bar:focus {
+        border: tall $accent;
+        background: $surface-lighten-1;
+    }
+
     #status-bar {
         dock: bottom;
         height: 1;
@@ -142,6 +147,18 @@ class CodeCompassApp(App[None]):
 
     # ── Compose ──────────────────────────────────────────────────────
 
+    def _github_token_status(self) -> tuple[bool, str]:
+        """Return ``(is_set, description)`` for the GitHub token status."""
+        import os
+
+        token = self._settings.github_token
+        if token:
+            masked = token[:4] + "\u2026" + token[-4:] if len(token) > 8 else "****"
+            return True, f"configured ({masked})"
+        if os.environ.get("GITHUB_TOKEN"):
+            return True, "set via GITHUB_TOKEN env var"
+        return False, "not set"
+
     def compose(self) -> ComposeResult:
         yield Header()
         with Horizontal(id="main"):
@@ -185,11 +202,16 @@ class CodeCompassApp(App[None]):
         summary_panel.summary_text = summary.to_text()
 
         # 3. Welcome message
+        token_ok, token_desc = self._github_token_status()
+        token_icon = "✓" if token_ok else "✗"
+        token_line = f"- **GitHub token:** {token_icon} {token_desc}"
+
         welcome = (
             f"👋 Welcome! I've scanned **{summary.name}**.\n\n"
             f"- **Languages:** {', '.join(lang.value for lang in summary.languages)}\n"
             f"- **Files:** {summary.total_files} ({summary.total_lines:,} lines)\n"
-            f"- **Frameworks:** {', '.join(f.name for f in summary.frameworks) or 'none detected'}\n\n"
+            f"- **Frameworks:** {', '.join(f.name for f in summary.frameworks) or 'none detected'}\n"
+            f"{token_line}\n\n"
             "Ask me anything about this codebase — architecture, \"why\" questions, "
             "contributor info, or help finding code."
         )
@@ -199,7 +221,12 @@ class CodeCompassApp(App[None]):
         status.update("🔌 Connecting to Copilot SDK…")
         try:
             await self._connect_sdk()
-            status.update(f"🧭 {summary.name} — Connected (model: {self._settings.model})")
+            token_ok, _ = self._github_token_status()
+            token_icon = "✓" if token_ok else "✗"
+            status.update(
+                f"🧭 {summary.name} \u2014 Connected (model: {self._settings.model}) "
+                f"| Token: {token_icon}"
+            )
         except Exception as exc:
             status.update(f"⚠️ SDK not connected: {exc}")
             await messages.mount(
@@ -210,6 +237,9 @@ class CodeCompassApp(App[None]):
                     role="system",
                 )
             )
+
+        # Focus the input bar so the user sees the cursor immediately
+        self.query_one("#input-bar", Input).focus()
 
     async def _connect_sdk(self) -> None:
         """Initialize the CompassClient and create a session."""

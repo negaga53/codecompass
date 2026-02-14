@@ -77,7 +77,6 @@ class TestSettings:
     def test_repo_path_default(self) -> None:
         settings = Settings.load()
         assert settings.repo_path == "."
-        assert settings.premium_usage_warnings is True
 
     def test_load_prefers_repo_config_over_cwd(self, tmp_path: Path) -> None:
         cwd_cfg = tmp_path / ".codecompass.toml"
@@ -98,12 +97,12 @@ class TestSettings:
         settings = Settings.load(base_path=tmp_path)
         assert settings.log_level == "DEBUG"
 
-    def test_load_reads_premium_warning_toggle(self, tmp_path: Path) -> None:
+    def test_load_reads_log_level_from_config(self, tmp_path: Path) -> None:
         cfg = tmp_path / ".codecompass.toml"
-        cfg.write_text('[codecompass]\npremium_usage_warnings = false\n', encoding="utf-8")
+        cfg.write_text('[codecompass]\nlog_level = "DEBUG"\n', encoding="utf-8")
 
         settings = Settings.load(base_path=tmp_path)
-        assert settings.premium_usage_warnings is False
+        assert settings.log_level == "DEBUG"
 
     def test_repo_config_overrides_global_config(self, tmp_path: Path) -> None:
         repo_dir = tmp_path / "repo"

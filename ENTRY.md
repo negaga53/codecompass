@@ -16,28 +16,63 @@ Point it at any repository, and it:
 - **Answers questions** grounded in actual code, git history, and contributor data
 - **Generates artifacts** like dependency diagrams, onboarding docs, and change summaries
 
-Unlike just running `copilot` in a terminal, CodeCompass gives the AI **12 custom tools** and a **pre-built knowledge graph** — so answers come from structured data instead of sequential file reads.
-
 I built this because every time I join a new project or revisit an old one, I spend hours reading READMEs, tracing imports, and asking "who owns this file?" CodeCompass compresses that entire onboarding process into seconds.
+
+### Why Not Just Use Copilot CLI / Chat Directly?
+
+Running `copilot` or Copilot Chat starts from scratch every time — reading files one by one, with no access to git history, PRs, or contributor data. You'd need to manually prompt-engineer context and invoke tools yourself to get useful results.
+
+CodeCompass is **purpose-built for repository analysis**:
+
+- **Pre-indexed codebase** — AST parsing, import tracing, symbol mapping happen *before* the first question, so the AI answers from structured data instead of guessing
+- **Automatic GitHub API access** — PRs, issues, reviews, and commit history are wired in as tools. Ask "Show me PR #464 and search for BYOK issues" and the AI fetches real data instantly — no manual setup
+- **12 specialized tools in every session** — git history search, contributor analysis, dependency tracing, doc staleness detection, symbol lookup, code search — all available automatically
+- **Knowledge graph queries** — "What modules depend on git.py?" is answered in one tool call from the graph, not 5-10 sequential file reads
+
+### CLI-First = Automatable
+
+Because CodeCompass is a CLI tool with `--yes` / `-y` flags on every AI command, it fits naturally into CI/CD pipelines:
+
+```bash
+# Generate onboarding docs on every release
+codecompass onboard --ai -o docs/onboarding.md --yes
+
+# Audit docs for staleness in CI — fail the build if docs are stale
+codecompass audit --yes
+
+# Export a dependency graph for the wiki
+codecompass graph -o deps.md
+
+# Summarize recent changes for a Slack notification
+codecompass diff-explain --commits 5 --yes
+
+# Export knowledge graph as structured data
+codecompass onboard -o knowledge.json -f json
+```
+
+No interactive prompts, no manual intervention — just structured output from AI-powered analysis.
 
 ### Key Features
 
 | Feature | What It Does |
 |---------|-------------|
 | **Instant Onboarding** | Scans any repo — detects languages, frameworks, CI, entry points, test dirs |
+| **AI Narrative Summary** | Optional `--ai` flag generates an AI-written project overview |
 | **Dependency Graph** | Generates Mermaid diagrams of module dependencies from AST analysis |
 | **Diff Explain** | AI-powered analysis of recent commits — WHAT changed, WHY, and the impact |
 | **Natural Language Q&A** | Ask questions about the codebase; AI uses 12 custom tools to find answers |
-| **Export** | Generate portable Markdown or JSON onboarding documents |
+| **"Why" Investigation** | Reconstruct design decisions from commits, PRs, and blame data |
 | **Doc Freshness Audit** | Detect stale documentation that no longer matches the code |
 | **Contributor Intelligence** | Find who owns a file, who's active, who to ask about X |
+| **GitHub Intelligence** | Query PRs, issues, and reviews directly from the CLI |
 | **Rich TUI** | Textual-based split-pane interface with streaming AI responses |
+| **Premium Awareness** | Shows model cost before AI calls; free models auto-confirm |
 | **Configuration** | `.codecompass.toml` with interactive wizard, env vars, CLI flags |
 
 ### Technologies
 
 - **Python** (Click CLI, Pydantic models, asyncio)
-- **[GitHub Copilot SDK](https://github.com/github/copilot-sdk)** — the agentic runtime (JSON-RPC, streaming, custom tools)
+- **[GitHub Copilot SDK](https://github.com/github/copilot-sdk)** — the agentic runtime (JSON-RPC, streaming, custom tools, `billing.multiplier` for premium-rate detection)
 - **Textual** — terminal UI framework
 - **Rich** — terminal formatting
 - **AST module** — Python knowledge graph builder
@@ -65,7 +100,7 @@ The TUI scans the repo instantly, displays a structured summary (languages, fram
 
 ### 🔍 GitHub Intelligence — PR Details & Issue Search
 
-Ask about pull requests and issues directly from the command line. The AI uses the `get_pr_details` and `search_issues` tools to fetch live data from the GitHub API.
+Ask about pull requests and issues directly from the command line. The AI uses the `get_pr_details` and `search_issues` tools to fetch live data from the GitHub API — no manual setup required.
 
 ![GitHub Tools Demo](demos/github_tools.gif)
 
@@ -73,37 +108,23 @@ Ask about pull requests and issues directly from the command line. The AI uses t
 codecompass --repo ../copilot-sdk ask "Show me PR #464 details and search issues about BYOK"
 ```
 
-In one prompt, the AI retrieves PR #464 (RPC codegen by SteveSandersonMS, merged 2026-02-13) and finds 5 BYOK-related issues — all grounded in real GitHub data.
+In one prompt, the AI retrieves PR #464 (RPC codegen by SteveSandersonMS, merged 2026-02-13) and finds 5 BYOK-related issues — all grounded in real GitHub data, fetched automatically.
 
 ---
 
 ### 📝 AI-Powered Diff Explanation
 
-Analyzes recent commits with full diffs, then uses the Copilot SDK to generate a human-readable summary. Perfect for catching up after time away from a project.
+Analyzes recent commits with full diffs, then uses the Copilot SDK to generate a human-readable summary. Perfect for catching up after time away from a project — or for generating release notes in CI.
 
 ![Diff Explain Demo](demos/diff_explain.gif)
 
 ```bash
-codecompass --repo ../copilot-sdk diff-explain -n 3
+codecompass --repo ../copilot-sdk diff-explain --commits 3
 ```
 
 The AI explains **what** changed, **why** it was likely done, the **impact** on the system, and **what new developers should understand**.
 
 ---
-
-### The Knowledge Graph Advantage
-
-This is what makes CodeCompass different from just asking `copilot` a question:
-
-```
-# Plain copilot CLI — "What modules depend on git.py?"
-# → Needs to read every .py file, parse imports, correlate... 5-10 tool calls
-
-# CodeCompass — same question, answered instantly from the knowledge graph:
-$ codecompass ask "What depends on the git module?"
-# → KG returns: cli, ui.app, tests.test_git, tests.test_tools
-#   All in ONE tool call via get_module_dependencies
-```
 
 The AI has access to **12 custom tools** in a single session:
 
@@ -126,36 +147,18 @@ The AI has access to **12 custom tools** in a single session:
 
 Building CodeCompass with the Copilot CLI was a revelatory experience. Here's what stood out:
 
-### The SDK Made It Possible
-
-CodeCompass is built on the **[GitHub Copilot SDK](https://github.com/github/copilot-sdk)** — the Python SDK that provides programmatic access to the same Copilot engine. The `@define_tool` decorator with Pydantic models made it trivial to expose my knowledge graph operations as tools the AI can call:
-
-```python
-from copilot import CopilotClient, define_tool
-from pydantic import BaseModel, Field
-
-class GetModuleDepsParams(BaseModel):
-    module: str = Field(description="Module name to look up")
-
-@define_tool(description="Show module import/export relationships")
-async def get_module_dependencies(params: GetModuleDepsParams) -> str:
-    deps = knowledge_graph.dependencies(params.module)
-    return format_dependencies(deps)
-```
-
-The SDK handles JSON-RPC communication, streaming, tool invocation, and session management — I focused entirely on the domain logic.
-
 ### What Copilot CLI Did Well
 
 - **Streaming responses** feel natural — the TUI and CLI both show text appearing word-by-word
 - **Multi-turn conversations** maintain context across questions in chat mode
 - **Custom tools** are the killer feature — the AI becomes genuinely useful when it can query structured data instead of guessing
 - **The permission model** (asking before running sensitive commands) builds trust
+- **`billing.multiplier`** on model objects lets me show users the actual premium cost before any AI call
 
 ### Challenges
 
 - **Context window limits** with large repos — I had to be strategic about what context to inject
-- **Balancing local vs. AI** — some features (onboard, graph, export) are intentionally local-only and deterministic, which makes them reliable and fast
+- **Balancing local vs. AI** — some features (onboard scan, graph, contributors) are intentionally local-only and deterministic, which makes them reliable, fast, and free
 
 ### Architecture
 
@@ -185,7 +188,7 @@ The SDK handles JSON-RPC communication, streaming, tool invocation, and session 
 
 ## Summary
 
-CodeCompass turns any codebase into something you can *talk to*. It pre-indexes the code, builds a semantic knowledge graph, and gives the Copilot AI structured tools to answer deep questions about architecture, history, contributors, and documentation freshness.
+CodeCompass turns any codebase into something you can *talk to*. It pre-indexes the code, builds a semantic knowledge graph, and gives the Copilot AI structured tools to answer deep questions — saving you the time and prompt engineering you'd need to get similar results from generic Copilot CLI or Chat.
 
 **Built entirely with the GitHub Copilot CLI and SDK** — from the initial scaffolding to the final polish.
 

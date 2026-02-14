@@ -1,17 +1,15 @@
 """CLI entry point for CodeCompass (Click-based).
 
 Commands:
-    onboard       Scan a repo and display an interactive onboarding summary
+    onboard       Scan a repo and display an AI-powered onboarding summary
     ask           Ask a natural-language question about the codebase
     why           Ask WHY something exists in the codebase
     architecture  Explore the repo's architecture
     contributors  Show contributor intelligence
     audit         Audit documentation freshness
     chat          Interactive multi-turn chat
-    demo          Print a deterministic, judge-friendly demo script
-    premium-usage Show commands that may consume Copilot premium requests
     tui           Launch the interactive terminal UI
-    config        Manage CodeCompass configuration
+    config        Manage CodeCompass configuration (incl. set-model)
 """
 
 from __future__ import annotations
@@ -32,12 +30,14 @@ console = Console()
 
 
 _FALLBACK_MODELS: list[tuple[str, str]] = [
-    ("claude-sonnet-4", "yes"),
-    ("claude-haiku-4.5", "yes"),
-    ("gpt-4.1", "yes"),
-    ("gpt-5.1", "yes"),
-    ("gpt-5.2-codex", "yes"),
-    ("o4-mini", "yes"),
+    ("claude-sonnet-4", "1x"),
+    ("claude-haiku-4.5", "0.33x"),
+    ("gpt-4.1", "0x"),
+    ("gpt-5-mini", "0x"),
+    ("gpt-5.1", "1x"),
+    ("gpt-5.1-codex", "1x"),
+    ("gpt-5.2-codex", "1x"),
+    ("o4-mini", "0.33x"),
 ]
 
 
@@ -50,15 +50,50 @@ _PREMIUM_USAGE: dict[str, tuple[str, str]] = {
     "diff-explain": ("yes", "Analyzes commit diffs with Copilot model"),
     "tui": ("yes", "Chat interactions in TUI use Copilot model"),
     "onboard --interactive": ("conditional", "Onboarding scan is local; interactive chat uses Copilot model"),
+    "onboard (AI summary)": ("yes", "Streams an AI-generated narrative onboarding summary"),
 }
 
 
-def _print_premium_notice(settings: Settings, command_name: str, detail: str) -> None:
-    if not settings.premium_usage_warnings:
-        return
+def _confirm_ai_action(settings: Settings, command_name: str, *, skip_confirm: bool = False) -> bool:
+    """Show model/cost info and ask the user to confirm before an AI call.
+
+    Returns ``True`` if the user confirms (or the model is free / ``skip_confirm``).
+    Returns ``False`` to abort.
+    """
+    rate = _get_model_rate(settings.model)
+    entry = _PREMIUM_USAGE.get(command_name)
+    detail = entry[1] if entry else ""
+
+    if rate == "0x":
+        console.print(
+            f"[dim]Model:[/] [cyan]{settings.model}[/] (free) — {detail}"
+        )
+        return True
+
     console.print(
-        f"[yellow]⚠ Premium usage:[/] `{command_name}` may consume Copilot premium requests. {detail}"
+        f"[yellow]💎 Premium request:[/] [cyan]{settings.model}[/] "
+        f"({rate} per request) — {detail}"
     )
+
+    if skip_confirm:
+        return True
+
+    return click.confirm("Continue?", default=True)
+
+
+# Cached model list to avoid redundant SDK calls within a single CLI invocation
+_MODEL_CACHE: list[tuple[str, str]] | None = None
+
+
+def _get_model_rate(model: str) -> str:
+    """Return the premium rate string for a model (e.g. ``\"0x\"``, ``\"1x\"``)."""
+    global _MODEL_CACHE
+    if _MODEL_CACHE is None:
+        _MODEL_CACHE = _available_models_with_premium()
+    for name, rate in _MODEL_CACHE:
+        if name == model:
+            return rate
+    return "unknown"
 
 
 def _configure_logging(level: str) -> None:
@@ -69,24 +104,100 @@ def _configure_logging(level: str) -> None:
     )
 
 
-def _normalize_premium_flag(raw: object) -> str:
+def _format_premium_rate(raw: object) -> str:
+    """Format a premium request multiplier from the SDK into a display string.
+
+    Handles numeric multipliers (0, 0.33, 1, …), booleans, and strings.
+    Returns a string like ``"0x"``, ``"1x"``, ``"0.33x"``.
+    """
+    if isinstance(raw, (int, float)):
+        if raw == 0:
+            return "0x"
+        if raw == int(raw):
+            return f"{int(raw)}x"
+        return f"{raw:g}x"
     if raw is True:
-        return "yes"
+        return "1x"
     if raw is False:
-        return "no"
+        return "0x"
     if isinstance(raw, str):
         val = raw.strip().lower()
+        # Try parsing as a number (e.g. "0.33")
+        try:
+            num = float(val.rstrip("x"))
+            if num == 0:
+                return "0x"
+            if num == int(num):
+                return f"{int(num)}x"
+            return f"{num:g}x"
+        except ValueError:
+            pass
         if val in {"yes", "true", "premium", "paid"}:
-            return "yes"
+            return "1x"
         if val in {"no", "false", "free"}:
-            return "no"
+            return "0x"
     return "unknown"
+
+
+def _extract_premium_multiplier(item: object) -> object:
+    """Walk an SDK model object to find the premium request multiplier.
+
+    The Copilot SDK returns ``ModelInfo`` objects with a ``billing``
+    attribute that contains the ``multiplier`` (e.g. 0.0, 0.33, 1.0).
+
+    Checks common attribute/key paths (in priority order):
+    - ``item.billing.multiplier``
+    - ``item["billing"]["multiplier"]``
+    - ``item.policy.premium_request_multiplier``
+    - Legacy: ``item.premium``, ``item.is_premium``, etc.
+    """
+    # ── billing.multiplier (current SDK) ─────────────────────────────
+    if isinstance(item, dict):
+        billing = item.get("billing")
+        if isinstance(billing, dict):
+            val = billing.get("multiplier")
+            if val is not None:
+                return val
+        policy = item.get("policy")
+        if isinstance(policy, dict):
+            val = policy.get("premium_request_multiplier") or policy.get("premiumRequestMultiplier")
+            if val is not None:
+                return val
+        for key in ("premium_request_multiplier", "premiumRequestMultiplier",
+                    "multiplier", "premium", "is_premium",
+                    "uses_premium_requests", "premium_usage"):
+            val = item.get(key)
+            if val is not None:
+                return val
+    else:
+        billing = getattr(item, "billing", None)
+        if billing is not None:
+            val = getattr(billing, "multiplier", None)
+            if val is not None:
+                return val
+        policy = getattr(item, "policy", None)
+        if policy is not None:
+            val = getattr(policy, "premium_request_multiplier", None) or getattr(
+                policy, "premiumRequestMultiplier", None
+            )
+            if val is not None:
+                return val
+        for attr in ("premium_request_multiplier", "premiumRequestMultiplier",
+                     "multiplier", "premium", "is_premium",
+                     "uses_premium_requests", "premium_usage"):
+            val = getattr(item, attr, None)
+            if val is not None:
+                return val
+    return None
 
 
 def _available_models_with_premium() -> list[tuple[str, str]]:
     """Best-effort model list from Copilot SDK with premium metadata.
 
-    Returns fallback data if SDK model listing is unavailable.
+    Returns a list of ``(model_id, premium_rate)`` tuples where
+    *premium_rate* is a display string like ``"0x"``, ``"1x"``, etc.
+
+    Falls back to hardcoded data if SDK model listing is unavailable.
     """
 
     async def _fetch() -> list[tuple[str, str]]:
@@ -107,23 +218,17 @@ def _available_models_with_premium() -> list[tuple[str, str]]:
         for item in raw_models or []:
             if isinstance(item, dict):
                 model_id = item.get("id") or item.get("model") or item.get("name")
-                premium_raw = (
-                    item.get("premium")
-                    or item.get("is_premium")
-                    or item.get("uses_premium_requests")
-                    or item.get("premium_usage")
-                )
             else:
-                model_id = getattr(item, "id", None) or getattr(item, "model", None) or getattr(item, "name", None)
-                premium_raw = (
-                    getattr(item, "premium", None)
-                    or getattr(item, "is_premium", None)
-                    or getattr(item, "uses_premium_requests", None)
-                    or getattr(item, "premium_usage", None)
+                model_id = (
+                    getattr(item, "id", None)
+                    or getattr(item, "model", None)
+                    or getattr(item, "name", None)
                 )
 
+            premium_raw = _extract_premium_multiplier(item)
+
             if model_id:
-                parsed.append((str(model_id), _normalize_premium_flag(premium_raw)))
+                parsed.append((str(model_id), _format_premium_rate(premium_raw)))
 
         return parsed or _FALLBACK_MODELS
 
@@ -131,6 +236,19 @@ def _available_models_with_premium() -> list[tuple[str, str]]:
         return asyncio.run(_fetch())
     except Exception:
         return _FALLBACK_MODELS
+
+
+def _github_token_status(settings: Settings) -> tuple[bool, str]:
+    """Return ``(is_set, description)`` for the GitHub token status."""
+    token = settings.github_token
+    if token:
+        masked = token[:4] + "…" + token[-4:] if len(token) > 8 else "****"
+        return True, f"configured ({masked})"
+    # Check environment variable directly as a hint
+    import os
+    if os.environ.get("GITHUB_TOKEN"):
+        return True, "set via GITHUB_TOKEN env var"
+    return False, "not set"
 
 
 def _init_git(repo_path: Path):
@@ -167,8 +285,14 @@ async def _run_with_sdk(
     settings: Settings,
     system_message: dict[str, str],
     prompt: str,
+    *,
+    status_msg: str = "Thinking…",
 ) -> None:
-    """Send a prompt to the Copilot SDK and stream the response."""
+    """Send a prompt to the Copilot SDK and stream the response.
+
+    Shows a Rich spinner while waiting for the first token, then
+    streams output to stdout.  Catches timeouts gracefully.
+    """
     from codecompass.agent.client import CompassClient
     from codecompass.indexer.knowledge_graph import KnowledgeGraph
 
@@ -194,12 +318,34 @@ async def _run_with_sdk(
             streaming=True,
         )
 
+        first_token = True
+        status = console.status(f"[bold cyan]{status_msg}[/]")
+        status.start()
+
         def on_delta(delta: str) -> None:
+            nonlocal first_token
+            if first_token:
+                status.stop()
+                console.print()
+                first_token = False
             sys.stdout.write(delta)
             sys.stdout.flush()
 
-        console.print()
-        await client.send_and_collect(prompt, on_delta=on_delta)
+        try:
+            await client.send_and_collect(prompt, on_delta=on_delta)
+        except RuntimeError as exc:
+            status.stop()
+            if "timed out" in str(exc).lower() or "timeout" in str(exc).lower():
+                console.print(
+                    "\n[yellow]⚠ The Copilot model timed out.[/] "
+                    "Try again or use a different model."
+                )
+                return
+            raise
+        finally:
+            if first_token:
+                status.stop()
+
         console.print("\n")
 
 
@@ -241,6 +387,14 @@ async def _interactive_session(
             "/models to list, exit to quit[/]\n"
         )
 
+        # Show GitHub token status
+        token_ok, token_desc = _github_token_status(settings)
+        token_style = "green" if token_ok else "red"
+        token_icon = "✓" if token_ok else "✗"
+        console.print(
+            f"  GitHub token: [{token_style}]{token_icon} {token_desc}[/]\n"
+        )
+
         current_model = settings.model
 
         while True:
@@ -258,7 +412,10 @@ async def _interactive_session(
             # Slash commands
             if stripped.lower() == "/models":
                 models = _available_models_with_premium()
-                model_text = ", ".join(f"{name} (premium: {premium})" for name, premium in models)
+                model_text = ", ".join(
+                    f"{name} ({rate})" if rate != "0x" else f"{name} (free)"
+                    for name, rate in models
+                )
                 console.print(f"\n[bold]Available models:[/] {model_text}")
                 console.print(f"[dim]Current: {current_model}[/]\n")
                 continue
@@ -320,6 +477,13 @@ def main(ctx: click.Context, repo: str, log_level: str | None, model: str | None
 
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
+        # Show quick status summary
+        token_ok, token_desc = _github_token_status(settings)
+        token_icon = "✓" if token_ok else "✗"
+        console.print(
+            f"\n  GitHub token: [{('green' if token_ok else 'red')}]{token_icon} {token_desc}[/]"
+            f"  |  Model: [cyan]{settings.model}[/]"
+        )
 
 
 # ── onboard ──────────────────────────────────────────────────────────
@@ -330,21 +494,90 @@ def main(ctx: click.Context, repo: str, log_level: str | None, model: str | None
     "--interactive", "-i", is_flag=True,
     help="Start an interactive Q&A session after displaying the summary.",
 )
+@click.option(
+    "--output", "-o", "output_path",
+    default=None,
+    help="Export the onboarding summary to a file (default: stdout only).",
+)
+@click.option(
+    "--format", "-f", "fmt",
+    type=click.Choice(["markdown", "json"]),
+    default="markdown",
+    help="Export format when using --output.",
+)
+@click.option("--ai/--no-ai", "run_ai", default=None,
+              help="Generate (or skip) an AI narrative summary. Prompts if omitted.")
+@click.option("--yes", "-y", "skip_confirm", is_flag=True,
+              help="Skip confirmation prompts.")
 @click.pass_context
-def onboard(ctx: click.Context, interactive: bool) -> None:
-    """Scan a repository and display an AI-powered onboarding summary."""
+def onboard(
+    ctx: click.Context,
+    interactive: bool,
+    output_path: str | None,
+    fmt: str,
+    run_ai: bool | None,
+    skip_confirm: bool,
+) -> None:
+    """Scan a repository and display an AI-powered onboarding summary.
+
+    The repo is scanned locally (no premium requests consumed) and the
+    results are displayed as a rich panel.  Optionally, an AI-generated
+    narrative is streamed from the Copilot model.
+
+    Use --output to export the summary to a file (markdown or JSON).
+
+    \b
+    💎 The AI summary and --interactive mode may consume Copilot
+       premium requests depending on the selected model.
+    """
     from codecompass.agent.agent import CodeCompassAgent
     from codecompass.utils.formatting import print_onboarding_summary
 
     settings: Settings = ctx.obj["settings"]
     repo_path: Path = ctx.obj["repo_path"]
 
-    agent = CodeCompassAgent(repo_path, settings=settings)
-    summary = asyncio.run(agent.onboard())
+    with console.status("[bold cyan]Scanning repository…[/]"):
+        agent = CodeCompassAgent(repo_path, settings=settings)
+        summary = asyncio.run(agent.onboard())
     print_onboarding_summary(summary)
 
+    # --- AI-generated narrative summary --------------------------------
+    want_ai = run_ai  # True, False, or None (ask)
+    if want_ai is None:
+        want_ai = click.confirm(
+            "\nGenerate an AI-powered onboarding summary?", default=True
+        )
+
+    if want_ai:
+        if not _confirm_ai_action(settings, "onboard (AI summary)", skip_confirm=skip_confirm):
+            console.print("[dim]Skipped.[/]")
+        else:
+            ai_prompt = (
+                "Based on the repository context you have, write a concise "
+                "but insightful onboarding summary for a new developer joining "
+                "this project. Cover: purpose, architecture highlights, key "
+                "entry points, how to get started, and anything surprising or "
+                "noteworthy. Be specific — reference actual file names and modules."
+            )
+            sys_msg = agent.system_message("onboarding")
+            try:
+                asyncio.run(
+                    _run_with_sdk(
+                        repo_path, settings, sys_msg, ai_prompt,
+                        status_msg="Generating AI summary…",
+                    )
+                )
+            except Exception as exc:
+                console.print(f"[yellow]⚠ AI summary unavailable:[/] {exc}")
+
+    # --- Export --------------------------------------------------------
+    if output_path:
+        _export_onboarding(agent, summary, output_path, fmt)
+
+    # --- Interactive mode ----------------------------------------------
     if interactive:
-        _print_premium_notice(settings, "onboard --interactive", _PREMIUM_USAGE["onboard --interactive"][1])
+        if not _confirm_ai_action(settings, "onboard --interactive", skip_confirm=skip_confirm):
+            return
         sys_msg = agent.system_message("onboarding")
         asyncio.run(_interactive_session(repo_path, settings, sys_msg))
 
@@ -353,21 +586,39 @@ def onboard(ctx: click.Context, interactive: bool) -> None:
 
 
 @main.command()
-@click.argument("question")
+@click.argument("question", required=False, default=None)
+@click.option("--yes", "-y", "skip_confirm", is_flag=True, help="Skip confirmation prompt.")
 @click.pass_context
-def ask(ctx: click.Context, question: str) -> None:
-    """Ask a natural-language question about the codebase."""
+def ask(ctx: click.Context, question: str | None, skip_confirm: bool) -> None:
+    """Ask a natural-language question about the codebase.
+
+    If QUESTION is omitted you will be prompted for it interactively.
+
+    \b
+    💎 This command sends a prompt to the Copilot model and may
+       consume premium requests depending on the selected model.
+    """
     from codecompass.agent.agent import CodeCompassAgent
 
     settings: Settings = ctx.obj["settings"]
     repo_path: Path = ctx.obj["repo_path"]
-    _print_premium_notice(settings, "ask", _PREMIUM_USAGE["ask"][1])
 
-    agent = CodeCompassAgent(repo_path, settings=settings)
-    payload = asyncio.run(agent.ask(question))
+    if not question:
+        question = click.prompt("Your question")
+        if not question.strip():
+            console.print("[yellow]No question provided.[/]")
+            return
+
+    if not _confirm_ai_action(settings, "ask", skip_confirm=skip_confirm):
+        return
+
+    with console.status("[bold cyan]Analyzing codebase…[/]"):
+        agent = CodeCompassAgent(repo_path, settings=settings)
+        payload = asyncio.run(agent.ask(question))
 
     asyncio.run(
-        _run_with_sdk(repo_path, settings, payload["system_message"], question)
+        _run_with_sdk(repo_path, settings, payload["system_message"], question,
+                      status_msg="Thinking…")
     )
 
 
@@ -375,37 +626,67 @@ def ask(ctx: click.Context, question: str) -> None:
 
 
 @main.command()
-@click.argument("question")
+@click.argument("question", required=False, default=None)
+@click.option("--yes", "-y", "skip_confirm", is_flag=True, help="Skip confirmation prompt.")
 @click.pass_context
-def why(ctx: click.Context, question: str) -> None:
-    """Ask WHY a decision was made or why something exists in the codebase."""
+def why(ctx: click.Context, question: str | None, skip_confirm: bool) -> None:
+    """Ask WHY a decision was made or why something exists in the codebase.
+
+    If QUESTION is omitted you will be prompted for it interactively.
+
+    \b
+    💎 This command sends a prompt to the Copilot model and may
+       consume premium requests depending on the selected model.
+    """
     from codecompass.agent.agent import CodeCompassAgent, AgentMode
 
     settings: Settings = ctx.obj["settings"]
     repo_path: Path = ctx.obj["repo_path"]
-    _print_premium_notice(settings, "why", _PREMIUM_USAGE["why"][1])
 
-    agent = CodeCompassAgent(repo_path, settings=settings)
-    sys_msg = agent.system_message(AgentMode.WHY)
+    if not question:
+        question = click.prompt("Your question")
+        if not question.strip():
+            console.print("[yellow]No question provided.[/]")
+            return
 
-    asyncio.run(_run_with_sdk(repo_path, settings, sys_msg, question))
+    if not _confirm_ai_action(settings, "why", skip_confirm=skip_confirm):
+        return
+
+    with console.status("[bold cyan]Analyzing codebase…[/]"):
+        agent = CodeCompassAgent(repo_path, settings=settings)
+        sys_msg = agent.system_message(AgentMode.WHY)
+
+    asyncio.run(_run_with_sdk(repo_path, settings, sys_msg, question,
+                              status_msg="Thinking…"))
 
 
 # ── architecture ─────────────────────────────────────────────────────
 
 
 @main.command()
+@click.option("--yes", "-y", "skip_confirm", is_flag=True, help="Skip confirmation prompt.")
 @click.pass_context
-def architecture(ctx: click.Context) -> None:
-    """Explore the architecture of the repository with AI analysis."""
+def architecture(ctx: click.Context, skip_confirm: bool) -> None:
+    """Explore the architecture of the repository with AI analysis.
+
+    Scans the codebase and asks the Copilot model to reason about
+    the project's architecture, patterns, and design decisions.
+
+    \b
+    💎 This command sends a prompt to the Copilot model and may
+       consume premium requests depending on the selected model.
+    """
     from codecompass.agent.agent import CodeCompassAgent
 
     settings: Settings = ctx.obj["settings"]
     repo_path: Path = ctx.obj["repo_path"]
-    _print_premium_notice(settings, "architecture", _PREMIUM_USAGE["architecture"][1])
 
-    agent = CodeCompassAgent(repo_path, settings=settings)
-    payload = asyncio.run(agent.explore_architecture())
+    if not _confirm_ai_action(settings, "architecture", skip_confirm=skip_confirm):
+        return
+
+    with console.status("[bold cyan]Scanning repository architecture…[/]"):
+        agent = CodeCompassAgent(repo_path, settings=settings)
+        payload = asyncio.run(agent.explore_architecture())
 
     asyncio.run(
         _run_with_sdk(
@@ -413,6 +694,7 @@ def architecture(ctx: click.Context) -> None:
             settings,
             payload["system_message"],
             payload["user_message"]["content"],
+            status_msg="Analyzing architecture…",
         )
     )
 
@@ -453,17 +735,29 @@ def contributors(ctx: click.Context) -> None:
 
 
 @main.command()
+@click.option("--yes", "-y", "skip_confirm", is_flag=True, help="Skip confirmation prompt.")
 @click.pass_context
-def audit(ctx: click.Context) -> None:
-    """Audit repository documentation for staleness using AI."""
+def audit(ctx: click.Context, skip_confirm: bool) -> None:
+    """Audit repository documentation for staleness using AI.
+
+    Scans docs and source files, then uses the Copilot model to
+    identify stale, missing, or inconsistent documentation.
+
+    \b
+    💎 This command sends a prompt to the Copilot model and may
+       consume premium requests depending on the selected model.
+    """
     from codecompass.agent.agent import CodeCompassAgent
 
     settings: Settings = ctx.obj["settings"]
     repo_path: Path = ctx.obj["repo_path"]
-    _print_premium_notice(settings, "audit", _PREMIUM_USAGE["audit"][1])
 
-    agent = CodeCompassAgent(repo_path, settings=settings)
-    payload = asyncio.run(agent.audit_docs())
+    if not _confirm_ai_action(settings, "audit", skip_confirm=skip_confirm):
+        return
+
+    with console.status("[bold cyan]Scanning documentation…[/]"):
+        agent = CodeCompassAgent(repo_path, settings=settings)
+        payload = asyncio.run(agent.audit_docs())
 
     asyncio.run(
         _run_with_sdk(
@@ -471,6 +765,7 @@ def audit(ctx: click.Context) -> None:
             settings,
             payload["system_message"],
             payload["user_message"]["content"],
+            status_msg="Auditing docs…",
         )
     )
 
@@ -479,18 +774,30 @@ def audit(ctx: click.Context) -> None:
 
 
 @main.command()
+@click.option("--yes", "-y", "skip_confirm", is_flag=True, help="Skip confirmation prompt.")
 @click.pass_context
-def chat(ctx: click.Context) -> None:
-    """Start an interactive multi-turn chat about the codebase."""
+def chat(ctx: click.Context, skip_confirm: bool) -> None:
+    """Start an interactive multi-turn chat about the codebase.
+
+    Scans the repo first, then enters a continuous conversation loop
+    with the Copilot model.
+
+    \b
+    💎 Each message in the chat consumes Copilot premium requests
+       depending on the selected model.
+    """
     from codecompass.agent.agent import CodeCompassAgent
     from codecompass.utils.formatting import print_onboarding_summary
 
     settings: Settings = ctx.obj["settings"]
     repo_path: Path = ctx.obj["repo_path"]
-    _print_premium_notice(settings, "chat", _PREMIUM_USAGE["chat"][1])
 
-    agent = CodeCompassAgent(repo_path, settings=settings)
-    summary = asyncio.run(agent.onboard())
+    if not _confirm_ai_action(settings, "chat", skip_confirm=skip_confirm):
+        return
+
+    with console.status("[bold cyan]Scanning repository…[/]"):
+        agent = CodeCompassAgent(repo_path, settings=settings)
+        summary = asyncio.run(agent.onboard())
     print_onboarding_summary(summary)
 
     sys_msg = agent.system_message("onboarding")
@@ -617,9 +924,10 @@ def graph(ctx: click.Context, output_path: str | None, fmt: str) -> None:
 
 
 @main.command(name="diff-explain")
-@click.option("--commits", "-n", default=5, help="Number of recent commits to analyze.")
+@click.option("--commits", "-n", default=None, type=int, help="Number of recent commits to analyze (prompts if omitted).")
+@click.option("--yes", "-y", "skip_confirm", is_flag=True, help="Skip confirmation prompt.")
 @click.pass_context
-def diff_explain(ctx: click.Context, commits: int) -> None:
+def diff_explain(ctx: click.Context, commits: int | None, skip_confirm: bool) -> None:
     """AI-powered explanation of recent changes.
 
     Analyzes the last N commits using git diff, then uses the Copilot
@@ -627,15 +935,21 @@ def diff_explain(ctx: click.Context, commits: int) -> None:
     WHY (based on commit messages and code context), and what a new
     developer should know about these changes.
 
-    This is a unique CodeCompass feature — it combines git history
-    analysis with AI reasoning that the plain Copilot CLI cannot do.
+    \b
+    💎 This command sends a prompt to the Copilot model and may
+       consume premium requests depending on the selected model.
     """
     from codecompass.agent.agent import CodeCompassAgent
     from codecompass.github.git import GitOps, GitOpsError
 
     settings: Settings = ctx.obj["settings"]
     repo_path: Path = ctx.obj["repo_path"]
-    _print_premium_notice(settings, "diff-explain", _PREMIUM_USAGE["diff-explain"][1])
+
+    if commits is None:
+        commits = click.prompt("How many recent commits to analyze?", default=5, type=int)
+
+    if not _confirm_ai_action(settings, "diff-explain", skip_confirm=skip_confirm):
+        return
 
     try:
         git = GitOps(repo_path)
@@ -644,7 +958,8 @@ def diff_explain(ctx: click.Context, commits: int) -> None:
         return
 
     # Gather recent commits
-    log = git.log(max_count=commits)
+    with console.status(f"[bold cyan]Gathering last {commits} commits…[/]"):
+        log = git.log(max_count=commits)
     if not log:
         console.print("[yellow]No commits found.[/]")
         return
@@ -681,118 +996,33 @@ def diff_explain(ctx: click.Context, commits: int) -> None:
     agent = CodeCompassAgent(repo_path, settings=settings)
     sys_msg = agent.system_message("onboarding")
 
-    asyncio.run(_run_with_sdk(repo_path, settings, sys_msg, prompt))
-
-
-@main.command(name="premium-usage")
-def premium_usage() -> None:
-    """Show which commands may consume Copilot premium requests."""
-    table = Table(title="Copilot Premium Request Usage")
-    table.add_column("Command", style="bold cyan")
-    table.add_column("Consumes Premium Requests")
-    table.add_column("Notes", style="dim")
-
-    for command_name in sorted(_PREMIUM_USAGE):
-        usage, note = _PREMIUM_USAGE[command_name]
-        table.add_row(command_name, usage, note)
-
-    console.print()
-    console.print(table)
-    console.print("\n[dim]Tip: local-only commands like onboard (without --interactive), graph, export, and contributors do not invoke model prompts.[/]")
-    console.print()
-
-
-# ── demo ─────────────────────────────────────────────────────────────
-
-
-@main.command()
-@click.option(
-    "--artifact", "artifact_path",
-    default="demo-deps.md",
-    show_default=True,
-    help="Artifact path for generated dependency graph (when --generate-artifact is used).",
-)
-@click.option(
-    "--generate-artifact",
-    is_flag=True,
-    help="Generate a Mermaid dependency graph artifact for the demo.",
-)
-@click.pass_context
-def demo(ctx: click.Context, artifact_path: str, generate_artifact: bool) -> None:
-    """Print a deterministic, judge-oriented demo flow.
-
-    This command is intentionally network-independent and reproducible.
-    It prints a concise script judges can follow, and can optionally
-    generate a dependency graph artifact for screen-sharing.
-    """
-    from codecompass.indexer.knowledge_graph import KnowledgeGraph
-
-    repo_path: Path = ctx.obj["repo_path"]
-    lines = [
-        "# CodeCompass Judge Demo Script (6-8 minutes)",
-        "",
-        "1) Onboard context",
-        f"   codecompass --repo {repo_path} onboard",
-        "   Expected: project summary (languages, frameworks, tree, entry points)",
-        "",
-        "2) Show deterministic architecture artifact",
-        f"   codecompass --repo {repo_path} graph -f mermaid -o {artifact_path}",
-        "   Expected: Mermaid dependency graph written to disk",
-        "",
-        "3) Ask a dependency question",
-        f"   codecompass --repo {repo_path} ask \"What depends on codecompass.github.git?\"",
-        "   Expected: grounded answer referencing module dependencies",
-        "",
-        "4) Explain recent changes",
-        f"   codecompass --repo {repo_path} diff-explain -n 5",
-        "   Expected: WHAT changed, WHY, and impact summary",
-        "",
-        "5) Audit docs freshness",
-        f"   codecompass --repo {repo_path} audit",
-        "   Expected: stale/inconsistent docs findings or clean audit",
-        "",
-        "6) Reliability proof",
-        "   pytest -q",
-        "   Expected: passing suite summary",
-    ]
-
-    if generate_artifact:
-        kg = KnowledgeGraph()
-        kg.build(repo_path)
-        all_mods = kg.all_modules()
-        project_mods = sorted(m for m in all_mods if m.startswith("codecompass."))
-
-        mermaid = ["```mermaid", "flowchart TD"]
-
-        def _mid(module_name: str) -> str:
-            return module_name.replace(".", "_")
-
-        for m in project_mods:
-            mermaid.append(f"    {_mid(m)}[{m.split('.')[-1]}]")
-        project_set = set(project_mods)
-        for m in project_mods:
-            for dep in sorted(kg.dependencies(m)):
-                if dep in project_set:
-                    mermaid.append(f"    {_mid(m)} --> {_mid(dep)}")
-        mermaid.append("```")
-        Path(artifact_path).write_text("\n".join(mermaid), encoding="utf-8")
-        lines += ["", f"Generated artifact: {artifact_path}"]
-
-    click.echo("\n".join(lines))
+    asyncio.run(_run_with_sdk(repo_path, settings, sys_msg, prompt,
+                              status_msg="Analyzing changes…"))
 
 
 # ── tui ──────────────────────────────────────────────────────────────
 
 
 @main.command()
+@click.option("--yes", "-y", "skip_confirm", is_flag=True, help="Skip confirmation prompt.")
 @click.pass_context
-def tui(ctx: click.Context) -> None:
-    """Launch the interactive Textual TUI."""
+def tui(ctx: click.Context, skip_confirm: bool) -> None:
+    """Launch the interactive Textual TUI.
+
+    Opens a full-screen terminal interface for browsing the codebase,
+    chatting with the AI, and exploring architecture.
+
+    \b
+    💎 Chat interactions in the TUI use the Copilot model and may
+       consume premium requests depending on the selected model.
+    """
     from codecompass.ui.app import CodeCompassApp
 
     settings: Settings = ctx.obj["settings"]
     repo_path: Path = ctx.obj["repo_path"]
-    _print_premium_notice(settings, "tui", _PREMIUM_USAGE["tui"][1])
+
+    if not _confirm_ai_action(settings, "tui", skip_confirm=skip_confirm):
+        return
 
     app = CodeCompassApp(repo_path=repo_path, settings=settings)
     app.run()
@@ -842,17 +1072,12 @@ def config_init(ctx: click.Context, force: bool, global_scope: bool) -> None:
     )
     tree_depth = click.prompt("Directory tree depth", default=4, type=int)
     max_file_size_kb = click.prompt("Max file size (KB)", default=512, type=int)
-    premium_usage_warnings = click.confirm(
-        "Show premium usage warnings for AI commands",
-        default=True,
-    )
 
     settings = Settings(
         model=model,
         log_level=log_level.upper(),
         tree_depth=tree_depth,
         max_file_size_kb=max_file_size_kb,
-        premium_usage_warnings=premium_usage_warnings,
     )
     write_config(settings, target)
     console.print(f"\n[green]✓[/] Config written to [bold]{target}[/]")
@@ -897,7 +1122,6 @@ def config_show(ctx: click.Context, global_scope: bool) -> None:
         "log_level": "CODECOMPASS_LOG_LEVEL",
         "tree_depth": "CODECOMPASS_TREE_DEPTH",
         "max_file_size_kb": "CODECOMPASS_MAX_FILE_SIZE_KB",
-        "premium_usage_warnings": "CODECOMPASS_PREMIUM_USAGE_WARNINGS",
         "github_token": "GITHUB_TOKEN",
     }
 
@@ -910,7 +1134,7 @@ def config_show(ctx: click.Context, global_scope: bool) -> None:
             global_only_vals["repo_path"] = settings.repo_path
         display_settings = Settings(**global_only_vals)
 
-    for field_name in ["model", "log_level", "tree_depth", "max_file_size_kb", "premium_usage_warnings", "repo_path", "github_token"]:
+    for field_name in ["model", "log_level", "tree_depth", "max_file_size_kb", "repo_path", "github_token"]:
         val = getattr(display_settings, field_name)
         # Determine source
         env_key = env_map.get(field_name)
@@ -961,7 +1185,7 @@ def config_set(ctx: click.Context, global_scope: bool, key: str, value: str | No
     """
     from codecompass.utils.config import update_config_key, config_path, global_config_path
 
-    valid_keys = {"model", "log_level", "tree_depth", "max_file_size_kb", "premium_usage_warnings", "github_token"}
+    valid_keys = {"model", "log_level", "tree_depth", "max_file_size_kb", "github_token"}
     if key not in valid_keys:
         console.print(
             f"[red]Invalid key:[/] {key}\n"
@@ -977,9 +1201,10 @@ def config_set(ctx: click.Context, global_scope: bool, key: str, value: str | No
 
         table = Table(title="Available Copilot Models")
         table.add_column("Model", style="bold cyan")
-        table.add_column("Premium Requests", style="dim")
+        table.add_column("Premium Rate", style="dim")
         for name, premium in models:
-            table.add_row(name, premium)
+            rate_display = "free" if premium == "0x" else premium
+            table.add_row(name, rate_display)
         console.print()
         console.print(table)
         console.print()
@@ -1017,52 +1242,83 @@ def config_path_cmd(ctx: click.Context, global_scope: bool) -> None:
     click.echo(f"{p}  ({exists})")
 
 
-# ── export ───────────────────────────────────────────────────────────
-
-
-@main.command()
-@click.option(
-    "--format", "-f", "fmt",
-    type=click.Choice(["markdown", "json"]),
-    default="markdown",
-    help="Export format.",
-)
-@click.option(
-    "--output", "-o", "output_path",
-    default=None,
-    help="Output file path (default: stdout).",
-)
+@config.command(name="set-model")
+@click.option("--global", "global_scope", is_flag=True, help="Write to global user config.")
+@click.argument("model_name", required=False, default=None)
 @click.pass_context
-def export(ctx: click.Context, fmt: str, output_path: str | None) -> None:
-    """Export the onboarding summary and knowledge graph.
+def config_set_model(ctx: click.Context, global_scope: bool, model_name: str | None) -> None:
+    """Shortcut to change the active Copilot model.
 
-    Generates a portable onboarding document or structured JSON.
+    Shows the model picker table and lets you choose interactively,
+    or pass the model name directly:
+
+        codecompass config set-model gpt-4.1
+        codecompass config set-model          # interactive picker
     """
-    import json as json_mod
-
-    from codecompass.agent.agent import CodeCompassAgent
+    from codecompass.utils.config import update_config_key, config_path, global_config_path
 
     settings: Settings = ctx.obj["settings"]
     repo_path: Path = ctx.obj["repo_path"]
 
-    agent = CodeCompassAgent(repo_path, settings=settings)
-    summary = asyncio.run(agent.onboard())
-    kg = agent.graph
+    if model_name is None or not model_name.strip():
+        models = _available_models_with_premium()
+        model_choices = [name for name, _ in models]
+
+        table = Table(title="Available Copilot Models")
+        table.add_column("Model", style="bold cyan")
+        table.add_column("Premium Rate", style="dim")
+        for name, premium in models:
+            rate_display = "free" if premium == "0x" else premium
+            table.add_row(name, rate_display)
+        console.print()
+        console.print(table)
+        console.print()
+
+        default_model = settings.model if settings.model in model_choices else model_choices[0]
+        model_name = click.prompt(
+            "Select model",
+            type=click.Choice(model_choices, case_sensitive=False),
+            default=default_model,
+            show_choices=False,
+        )
+
+    target = global_config_path() if global_scope else config_path(repo_path)
+    update_config_key("model", model_name, target)
+    console.print(f"[green]✓[/] Model set to [bold cyan]{model_name}[/] in {target}")
+
+
+# ── _export_onboarding (helper for onboard --output) ────────────────
+
+
+def _export_onboarding(
+    agent: object,
+    summary: object,
+    output_path: str,
+    fmt: str,
+) -> None:
+    """Serialise onboarding summary + knowledge graph to a file.
+
+    Called from ``onboard --output``; replaces the old standalone
+    ``export`` command.
+    """
+    import json as json_mod
+
+    kg = agent.graph  # type: ignore[attr-defined]
 
     if fmt == "json":
         data = {
-            "name": summary.name,
-            "root": summary.root,
-            "languages": [lang.value for lang in summary.languages],
-            "frameworks": [{"name": f.name, "version": f.version, "category": f.category} for f in summary.frameworks],
-            "total_files": summary.total_files,
-            "total_lines": summary.total_lines,
-            "entry_points": summary.entry_points,
-            "config_files": summary.config_files,
-            "test_directories": summary.test_directories,
-            "has_ci": summary.has_ci,
-            "has_readme": summary.has_readme,
-            "has_contributing": summary.has_contributing,
+            "name": summary.name,  # type: ignore[attr-defined]
+            "root": summary.root,  # type: ignore[attr-defined]
+            "languages": [lang.value for lang in summary.languages],  # type: ignore[attr-defined]
+            "frameworks": [{"name": f.name, "version": f.version, "category": f.category} for f in summary.frameworks],  # type: ignore[attr-defined]
+            "total_files": summary.total_files,  # type: ignore[attr-defined]
+            "total_lines": summary.total_lines,  # type: ignore[attr-defined]
+            "entry_points": summary.entry_points,  # type: ignore[attr-defined]
+            "config_files": summary.config_files,  # type: ignore[attr-defined]
+            "test_directories": summary.test_directories,  # type: ignore[attr-defined]
+            "has_ci": summary.has_ci,  # type: ignore[attr-defined]
+            "has_readme": summary.has_readme,  # type: ignore[attr-defined]
+            "has_contributing": summary.has_contributing,  # type: ignore[attr-defined]
             "modules": sorted(kg.all_modules()),
             "symbols": [
                 {"name": s.name, "kind": s.kind, "file": s.file, "line": s.line}
@@ -1077,18 +1333,17 @@ def export(ctx: click.Context, fmt: str, output_path: str | None) -> None:
     else:
         # Markdown export
         lines = [
-            f"# {summary.name} — Onboarding Guide",
+            f"# {summary.name} — Onboarding Guide",  # type: ignore[attr-defined]
             "",
             "*Generated by [CodeCompass](https://github.com/codecompass)*",
             "",
             "## Overview",
             "",
-            summary.to_text(),
+            summary.to_text(),  # type: ignore[attr-defined]
             "",
             "## Modules",
             "",
         ]
-        # List modules that belong to this project
         all_modules = sorted(kg.all_modules())
         root_counts: dict[str, int] = {}
         for module_name in all_modules:
@@ -1119,7 +1374,6 @@ def export(ctx: click.Context, fmt: str, output_path: str | None) -> None:
             "| Symbol | Kind | File | Line |",
             "|--------|------|------|------|",
         ]
-        # Filter out dunder methods and private symbols
         public_symbols = sorted(
             (s for s in kg.symbols.values()
              if not s.name.startswith("_")),
@@ -1133,13 +1387,11 @@ def export(ctx: click.Context, fmt: str, output_path: str | None) -> None:
             "## Dependencies",
             "",
         ]
-        # Deduplicate dependencies
         seen_deps: set[tuple[str, str]] = set()
         for edge in kg.imports:
             key = (edge.source_module, edge.target_module)
             if key not in seen_deps:
                 seen_deps.add(key)
-                # Skip stdlib imports for cleaner output
                 if edge.target_module.startswith(("__future__", "os", "sys",
                                                    "pathlib", "json", "enum",
                                                    "datetime", "logging",
@@ -1153,8 +1405,5 @@ def export(ctx: click.Context, fmt: str, output_path: str | None) -> None:
 
         output = "\n".join(lines)
 
-    if output_path:
-        Path(output_path).write_text(output, encoding="utf-8")
-        console.print(f"[green]Exported to {output_path}[/]")
-    else:
-        click.echo(output)
+    Path(output_path).write_text(output, encoding="utf-8")
+    console.print(f"[green]Exported to {output_path}[/]")

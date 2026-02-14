@@ -25,12 +25,10 @@ class TestCLI:
         assert "CodeCompass" in result.output
         assert "onboard" in result.output
         assert "ask" in result.output
-        assert "demo" in result.output
-        assert "premium-usage" in result.output
         assert "tui" in result.output
 
     def test_onboard(self) -> None:
-        result = runner.invoke(main, ["--repo", ".", "onboard"])
+        result = runner.invoke(main, ["--repo", ".", "onboard", "--no-ai"])
         assert result.exit_code == 0
         # Should print the summary panel
         assert "CodeCompass" in result.output or "python" in result.output.lower()
@@ -45,33 +43,6 @@ class TestCLI:
         assert result.exit_code == 0
         assert "Commands:" in result.output or "onboard" in result.output
 
-    def test_export_json(self) -> None:
-        result = runner.invoke(main, ["--repo", ".", "export", "--format", "json"])
-        assert result.exit_code == 0
-        assert '"name"' in result.output
-        assert '"languages"' in result.output
-
-    def test_export_help(self) -> None:
-        result = runner.invoke(main, ["export", "--help"])
-        assert result.exit_code == 0
-        assert "markdown" in result.output
-        assert "json" in result.output
-
-    def test_demo_script(self) -> None:
-        result = runner.invoke(main, ["--repo", ".", "demo"])
-        assert result.exit_code == 0
-        assert "Judge Demo Script" in result.output
-        assert "diff-explain" in result.output
-        assert "pytest -q" in result.output
-
-    def test_premium_usage_command(self) -> None:
-        result = runner.invoke(main, ["premium-usage"])
-        assert result.exit_code == 0
-        assert "Premium" in result.output
-        assert "ask" in result.output
-        assert "diff-explain" in result.output
-        assert "onboard --interactive" in result.output
-
 
 class TestConfigCommands:
     """Tests for the config subcommands."""
@@ -83,6 +54,7 @@ class TestConfigCommands:
         assert "show" in result.output
         assert "set" in result.output
         assert "path" in result.output
+        assert "set-model" in result.output
 
     def test_config_path(self) -> None:
         result = runner.invoke(main, ["config", "path"])
@@ -152,25 +124,61 @@ class TestConfigCommands:
             content = cfg.read_text()
             assert "tree_depth = 8" in content
 
-    def test_config_set_bool(self) -> None:
-        """Test that boolean keys are coerced to booleans."""
+    def test_config_set_log_level(self) -> None:
+        """Test that log_level can be set."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            result = runner.invoke(main, ["--repo", tmpdir, "config", "set", "premium_usage_warnings", "false"])
+            result = runner.invoke(main, ["--repo", tmpdir, "config", "set", "log_level", "DEBUG"])
             assert result.exit_code == 0
             cfg = Path(tmpdir) / ".codecompass.toml"
-            content = cfg.read_text().lower()
-            assert "premium_usage_warnings = false" in content
+            content = cfg.read_text()
+            assert 'log_level = "DEBUG"' in content
 
     def test_config_set_model_without_value_uses_selector(self, monkeypatch) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             monkeypatch.setattr(
                 "codecompass.cli._available_models_with_premium",
-                lambda: [("gpt-4.1", "yes"), ("gpt-5.1", "yes")],
+                lambda: [("gpt-4.1", "0x"), ("gpt-5.1", "1x")],
             )
 
             result = runner.invoke(
                 main,
                 ["--repo", tmpdir, "config", "set", "model"],
+                input="gpt-5.1\n",
+            )
+            assert result.exit_code == 0
+            cfg = Path(tmpdir) / ".codecompass.toml"
+            content = cfg.read_text()
+            assert 'model = "gpt-5.1"' in content
+
+    def test_config_set_model_shortcut(self, monkeypatch) -> None:
+        """Test that 'config set-model' works as a shortcut for 'config set model'."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            monkeypatch.setattr(
+                "codecompass.cli._available_models_with_premium",
+                lambda: [("gpt-4.1", "0x"), ("gpt-5.1", "1x")],
+            )
+
+            # Direct value
+            result = runner.invoke(
+                main,
+                ["--repo", tmpdir, "config", "set-model", "gpt-4.1"],
+            )
+            assert result.exit_code == 0
+            cfg = Path(tmpdir) / ".codecompass.toml"
+            content = cfg.read_text()
+            assert 'model = "gpt-4.1"' in content
+
+    def test_config_set_model_shortcut_interactive(self, monkeypatch) -> None:
+        """Test that 'config set-model' without a value shows the picker."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            monkeypatch.setattr(
+                "codecompass.cli._available_models_with_premium",
+                lambda: [("gpt-4.1", "0x"), ("gpt-5.1", "1x")],
+            )
+
+            result = runner.invoke(
+                main,
+                ["--repo", tmpdir, "config", "set-model"],
                 input="gpt-5.1\n",
             )
             assert result.exit_code == 0
@@ -184,7 +192,7 @@ class TestConfigCommands:
             result = runner.invoke(
                 main,
                 ["--repo", tmpdir, "config", "init"],
-                input="gpt-4.1\nWARNING\n4\n512\ny\n",
+                input="gpt-4.1\nWARNING\n4\n512\n",
             )
             assert result.exit_code == 0
             cfg = Path(tmpdir) / ".codecompass.toml"
@@ -192,7 +200,6 @@ class TestConfigCommands:
             content = cfg.read_text()
             assert "gpt-4.1" in content
             assert "WARNING" in content
-            assert "premium_usage_warnings = true" in content.lower()
 
     def test_config_init_no_overwrite(self) -> None:
         """Test that config init refuses to overwrite without --force."""
@@ -213,10 +220,9 @@ class TestConfigCommands:
             result = runner.invoke(
                 main,
                 ["--repo", tmpdir, "config", "init", "--force"],
-                input="new-model\nDEBUG\n6\n1024\nn\n",
+                input="new-model\nDEBUG\n6\n1024\n",
             )
             assert result.exit_code == 0
             content = cfg.read_text()
             assert "new-model" in content
             assert "old" not in content
-            assert "premium_usage_warnings = false" in content.lower()

@@ -40,10 +40,6 @@ class Settings(BaseModel):
         description="Max depth for the generated directory-tree view",
     )
     log_level: str = Field(default="WARNING", description="Logging level")
-    premium_usage_warnings: bool = Field(
-        default=True,
-        description="Whether to print premium-request usage warnings in AI commands",
-    )
 
     # ----- class methods ----
 
@@ -89,7 +85,6 @@ class Settings(BaseModel):
             "CODECOMPASS_MAX_FILE_SIZE_KB": "max_file_size_kb",
             "CODECOMPASS_TREE_DEPTH": "tree_depth",
             "CODECOMPASS_LOG_LEVEL": "log_level",
-            "CODECOMPASS_PREMIUM_USAGE_WARNINGS": "premium_usage_warnings",
         }
         for env_key, field_name in env_map.items():
             env_val = os.environ.get(env_key)
@@ -152,7 +147,6 @@ def write_config(
         "log_level": settings.log_level,
         "tree_depth": settings.tree_depth,
         "max_file_size_kb": settings.max_file_size_kb,
-        "premium_usage_warnings": settings.premium_usage_warnings,
     }
 
     if keys:
@@ -201,14 +195,6 @@ def update_config_key(key: str, value: str, path: str | Path | None = None) -> P
         try:
             existing[key] = int(value)
         except ValueError:
-            existing[key] = value
-    elif key == "premium_usage_warnings":
-        normalized = value.strip().lower()
-        if normalized in {"1", "true", "yes", "y", "on"}:
-            existing[key] = True
-        elif normalized in {"0", "false", "no", "n", "off"}:
-            existing[key] = False
-        else:
             existing[key] = value
     else:
         existing[key] = value
